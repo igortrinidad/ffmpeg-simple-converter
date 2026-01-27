@@ -14,5 +14,5 @@ node_modules
 *.webm
 *.vob
 
-.env
-.txt
+*.env
+*.txt
