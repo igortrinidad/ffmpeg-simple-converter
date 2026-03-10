@@ -1,14 +1,21 @@
 {
   "name": "mediacript",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "CLI and library to convert media files to performant formats and extract text using Groq and OpenAI's Whisper API",
   "type": "module",
-  "main": "./dist/lib.js",
-  "types": "./dist/lib.d.ts",
+  "main": "./dist/cjs/lib.js",
+  "module": "./dist/esm/lib.js",
+  "types": "./dist/esm/lib.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/lib.js",
-      "types": "./dist/lib.d.ts"
+      "import": {
+        "types": "./dist/esm/lib.d.ts",
+        "default": "./dist/esm/lib.js"
+      },
+      "require": {
+        "types": "./dist/cjs/lib.d.ts",
+        "default": "./dist/cjs/lib.js"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -33,7 +40,10 @@
   "scripts": {
     "convert": "node convert.js",
     "start": "node --loader ts-node/esm src/index.ts",
-    "build": "tsc && chmod +x dist/index.js && chmod +x cli.mjs",
+    "build": "npm run build:esm && npm run build:cjs && npm run build:post",
+    "build:esm": "tsc",
+    "build:cjs": "tsc --project tsconfig.cjs.json",
+    "build:post": "cp dist-esm-package.json dist/esm/package.json && cp dist-cjs-package.json dist/cjs/package.json && chmod +x dist/esm/index.js && chmod +x cli.mjs",
     "dev": "node --loader ts-node/esm --watch src/index.ts",
     "prepublishOnly": "npm run build"
   },

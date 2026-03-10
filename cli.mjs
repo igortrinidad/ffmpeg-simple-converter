@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 // Converte o caminho para URL file:// (necessário no Windows)
-const indexPath = join(__dirname, 'dist', 'index.js')
+const indexPath = join(__dirname, 'dist', 'esm', 'index.js')
 const indexURL = pathToFileURL(indexPath).href
 
 import(indexURL).catch((error) => {
