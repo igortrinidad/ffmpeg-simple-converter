@@ -1,10 +1,11 @@
 # Mediacript
 
-Powerful and flexible CLI for converting videos/audio and AI transcription, working on Linux, Mac, and Windows.
+Powerful and flexible CLI **and Node.js library** for converting videos/audio and AI transcription, working on Linux, Mac, and Windows.
 
 ## 🌟 Features
 
 - ✅ **Cross-platform**: Works on Linux, macOS, and Windows
+- 📦 **CLI & Library**: Use as command-line tool or Node.js library
 - 🔄 **Multi-Step Workflow**: Combine multiple operations in a single flow
 - 🎙️ **AI Transcription**: Support for Groq (fast) and OpenAI Whisper
 - 💾 **State Management**: Saves progress of each workflow step
@@ -51,13 +52,46 @@ ffmpeg -version
 
 ## 🚀 Installation
 
+### As CLI
+
 ```bash
 npm install
 ```
 
+### As Library (in your Node.js project)
+
+```bash
+npm install mediacript
+```
+
 ## 💡 Usage
 
-### Interactive Mode (Recommended)
+### As a Node.js Library
+
+MediaScript can be used programmatically in your Node.js applications:
+
+```javascript
+import { processVideo, transcribeAudioFile } from 'mediacript'
+
+// Process a complete video
+const result = await processVideo('video.mp4')
+console.log('Transcription:', result.transcription.text)
+
+// Or just transcribe an audio file
+const transcription = await transcribeAudioFile('audio.mp3')
+console.log(transcription.text)
+```
+
+**📚 [Complete Library Documentation](./LIBRARY_USAGE.md)** - Learn about all available functions, workflows, and examples.
+
+**📖 [Examples Directory](./examples/)** - Practical examples including:
+- Basic transcription
+- Complete workflows
+- Batch processing
+- Express.js API
+- TypeScript usage
+
+### Interactive CLI Mode (Recommended)
 
 ```bash
 npm start
