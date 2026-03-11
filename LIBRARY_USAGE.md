@@ -84,7 +84,32 @@ console.log('Vídeo convertido:', result.outputPath)
 // Caminho absoluto
 const result2 = await convertVideoFile('/home/user/videos/video.mov', '/home/user/output')
 console.log('Vídeo convertido:', result2.outputPath)
+
+// ⚡ CONVERSÃO RÁPIDA para arquivos grandes (WebM, etc)
+const result3 = await convertVideoFile('./video-grande.webm', './output', {
+  preset: 'veryfast',  // Muito mais rápido que 'medium' (padrão)
+  crf: 25,             // Qualidade um pouco menor = mais rápido
+  hwaccel: 'auto'      // Usa GPU se disponível (MUITO mais rápido)
+})
 ```
+
+**Presets disponíveis** (do mais rápido ao mais lento):
+- `ultrafast` - Mais rápido, qualidade mais baixa
+- `superfast` - Muito rápido
+- `veryfast` - Rápido ⭐ **Recomendado para arquivos grandes**
+- `faster` - Mais rápido
+- `fast` - Rápido
+- `medium` - Balanceado (padrão)
+- `slow` - Lento, melhor qualidade
+- `slower` - Muito lento
+- `veryslow` - Mais lento, máxima qualidade
+
+**Hardware Acceleration** (acelera muito a conversão):
+- `auto` - Auto-detecta GPU disponível ⭐ **Recomendado**
+- `nvenc` - NVIDIA GPU (até 10x mais rápido)
+- `qsv` - Intel Quick Sync
+- `vaapi` - Intel/AMD no Linux
+- `none` - Sem aceleração (CPU apenas)
 
 ### 3. Extrair Áudio de Vídeo
 
@@ -161,6 +186,19 @@ if (result.transcription) {
 
 // Ou usando caminhos relativos
 const result2 = await processVideo('./video.mov', './output')
+
+// ⚡ CONVERSÃO RÁPIDA para vídeos grandes
+const result3 = await processVideo(
+  './video-grande.webm',
+  './output',
+  {
+    conversionOptions: {
+      preset: 'veryfast',
+      hwaccel: 'auto'
+    },
+    groqApiKey: process.env.GROQ_API_KEY
+  }
+)
 ```
 
 ### Extrair e Transcrever (sem conversão de vídeo)

@@ -1,6 +1,6 @@
 {
   "name": "mediacript",
-  "version": "1.1.2",
+  "version": "1.2.2",
   "description": "CLI and library to convert media files to performant formats and extract text using Groq and OpenAI's Whisper API",
   "type": "module",
   "main": "./dist/cjs/lib.js",
@@ -45,6 +45,10 @@
     "build:cjs": "tsc --project tsconfig.cjs.json",
     "build:post": "cp dist-esm-package.json dist/esm/package.json && cp dist-cjs-package.json dist/cjs/package.json && chmod +x dist/esm/index.js && chmod +x cli.mjs",
     "dev": "node --loader ts-node/esm --watch src/index.ts",
+    "test": "NODE_OPTIONS=\"--experimental-vm-modules\" jest",
+    "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --watch",
+    "test:performance": "NODE_OPTIONS=\"--experimental-vm-modules\" jest tests/performance",
+    "test:coverage": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --coverage",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -58,8 +62,12 @@
     "openai": "^4.104.0"
   },
   "devDependencies": {
+    "@jest/globals": "^30.3.0",
     "@types/inquirer": "^8.2.12",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.0.10",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

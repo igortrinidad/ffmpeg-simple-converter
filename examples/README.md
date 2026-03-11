@@ -60,6 +60,44 @@ Demonstra como usar a biblioteca com caminhos completos (absolute paths) e paths
 node examples/06-absolute-paths.js
 ```
 
+### 7. [Conversão Rápida](./07-fast-conversion.js) ⚡
+**Novo!** Mostra como acelerar drasticamente a conversão de vídeos grandes usando diferentes presets e hardware acceleration.
+
+```bash
+node examples/07-fast-conversion.js
+```
+
+Ideal para:
+- Vídeos WebM grandes (>500MB)
+- Quando velocidade é mais importante que tamanho do arquivo
+- Aproveitar GPU para acelerar conversão
+
+### 8. [Parâmetros Customizados](./08-custom-parameters.js) 🎛️
+**Novo!** Demonstra como usar parâmetros customizados do ffmpeg para controle fino sobre a conversão.
+
+```bash
+node examples/08-custom-parameters.js video.webm
+```
+
+Mostra como:
+- Usar parâmetros customizados do ffmpeg
+- Otimizar para diferentes tipos de conteúdo (filme, animação, etc.)
+- Controlar pixel format, perfil, level e outras opções avançadas
+- Combinar presets com customizações
+
+### 9. [Default vs Custom](./09-default-vs-custom.js) 📊
+**Novo!** Compara o uso de parâmetros padrão vs. parâmetros customizados lado a lado.
+
+```bash
+node examples/09-default-vs-custom.js video.webm
+```
+
+Demonstra:
+- Diferença entre parâmetros padrão e customizados
+- Quando usar cada abordagem
+- Exemplos com H.264, VP9 e outras configurações
+- Comparação de performance
+
 ## Requisitos
 
 - Node.js >= 16

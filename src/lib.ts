@@ -12,14 +12,33 @@ import {
   extractAudio, 
   convertAudio,
   getAudioDuration,
-  splitAudioIntoChunks 
+  splitAudioIntoChunks,
+  type ConversionOptions,
+  type ConversionPreset,
+  type HardwareAcceleration
 } from './utils/ffmpegOperations.js'
 import { transcribeAudio, saveTranscription } from './transcript/index.js'
 import type { Config } from './types/index.js'
 
 export interface MediaScriptOptions {
+
+  /**
+   * Output directory for converted files and transcriptions. 
+   * Defaults to the same directory as the input file if not provided.
+   */
+  outputDir?: string | undefined
+  
   groqApiKey?: string
+  
   openaiApiKey?: string
+  /** Video conversion options for speed/quality control */
+  
+  conversionOptions?: ConversionOptions
+  /**
+   * Skip video conversion and extract audio directly from the original file.
+   * Useful for formats like .webm, .mkv, .mov where you only need the transcript.
+   */
+  skipVideoConversion?: boolean
 }
 
 export interface TranscriptionResult {
@@ -32,6 +51,9 @@ export interface ConversionResult {
   outputPath: string
   originalPath: string
 }
+
+// Re-export conversion types for convenience
+export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
 
 /**
  * Initialize MediaScript and verify dependencies
@@ -63,13 +85,28 @@ export function isConfigured(): boolean {
  * Convert a video file to a more performant format (H.264/AAC)
  * @param inputPath - Path to the input video file
  * @param outputDir - Optional output directory (defaults to input file directory)
+ * @param options - Optional conversion options for speed/quality control
  * @returns Promise with the output file path
+ * 
+ * @example
+ * // Fast conversion (lower quality but much faster)
+ * await convertVideoFile('video.webm', './output', { 
+ *   preset: 'veryfast', 
+ *   crf: 28 
+ * })
+ * 
+ * @example
+ * // Use hardware acceleration (NVIDIA GPU)
+ * await convertVideoFile('video.webm', './output', { 
+ *   hwaccel: 'auto',
+ *   preset: 'fast'
+ * })
  */
 export async function convertVideoFile(
   inputPath: string,
-  outputDir?: string
+  options?: ConversionOptions
 ): Promise<ConversionResult> {
-  const outputPath = await convertVideo(inputPath, outputDir)
+  const outputPath = await convertVideo(inputPath, options)
   return {
     outputPath,
     originalPath: inputPath
@@ -210,29 +247,51 @@ export function listMediaFilesInDirectory(directory: string): Array<{ name: stri
 
 /**
  * Complete workflow: Convert video + Extract audio + Transcribe
+ *
+ * When `options.skipVideoConversion` is `true`, skips the MP4 conversion step and
+ * extracts audio directly from the original video file (e.g. .webm, .mkv, .mov).
+ *
  * @param videoPath - Path to the input video file
  * @param outputDir - Optional output directory
- * @param options - Optional API keys for transcription
- * @returns Promise with all results
+ * @param options - Optional API keys, conversion options and workflow flags
+ * @returns Promise with all results. `convertedVideo` is `null` when conversion was skipped.
+ *
+ * @example
+ * // Full workflow (convert → extract audio → transcribe)
+ * await processVideo('video.webm', './output', {
+ *   conversionOptions: { preset: 'veryfast', hwaccel: 'auto' }
+ * })
+ *
+ * @example
+ * // Skip video conversion — extract audio directly and transcribe
+ * await processVideo('video.webm', './output', {
+ *   skipVideoConversion: true,
+ *   groqApiKey: process.env.GROQ_API_KEY
+ * })
  */
 export async function processVideo(
   videoPath: string,
-  outputDir?: string,
   options?: MediaScriptOptions
 ): Promise<{
-  convertedVideo: ConversionResult
+  convertedVideo: ConversionResult | null
   extractedAudio: ConversionResult
   transcription: TranscriptionResult | null
 }> {
-  // Convert video
-  const convertedVideo = await convertVideoFile(videoPath, outputDir)
-  
-  // Extract audio
-  const extractedAudio = await extractAudioFromVideo(convertedVideo.outputPath, outputDir)
-  
+  let convertedVideo: ConversionResult | null = null
+  let sourceForAudio = videoPath
+
+  if (!options?.skipVideoConversion) {
+    // Convert video to a performant format first
+    convertedVideo = await convertVideoFile(videoPath, options?.conversionOptions)
+    sourceForAudio = convertedVideo.outputPath
+  }
+
+  // Extract audio from the converted video (or directly from the original)
+  const extractedAudio = await extractAudioFromVideo(sourceForAudio, options?.outputDir)
+
   // Transcribe
   const transcription = await transcribeAudioFile(extractedAudio.outputPath, options)
-  
+
   return {
     convertedVideo,
     extractedAudio,
@@ -249,14 +308,13 @@ export async function processVideo(
  */
 export async function extractAndTranscribe(
   videoPath: string,
-  outputDir?: string,
   options?: MediaScriptOptions
 ): Promise<{
   extractedAudio: ConversionResult
   transcription: TranscriptionResult | null
 }> {
   // Extract audio
-  const extractedAudio = await extractAudioFromVideo(videoPath, outputDir)
+  const extractedAudio = await extractAudioFromVideo(videoPath, options?.outputDir)
   
   // Transcribe
   const transcription = await transcribeAudioFile(extractedAudio.outputPath, options)
@@ -270,20 +328,18 @@ export async function extractAndTranscribe(
 /**
  * Complete workflow: Convert audio + Transcribe
  * @param audioPath - Path to the input audio file
- * @param outputDir - Optional output directory
  * @param options - Optional API keys for transcription
  * @returns Promise with results
  */
 export async function convertAndTranscribe(
   audioPath: string,
-  outputDir?: string,
   options?: MediaScriptOptions
 ): Promise<{
   convertedAudio: ConversionResult
   transcription: TranscriptionResult | null
 }> {
   // Convert audio
-  const convertedAudio = await convertAudioFile(audioPath, outputDir)
+  const convertedAudio = await convertAudioFile(audioPath, options?.outputDir)
   
   // Transcribe
   const transcription = await transcribeAudioFile(convertedAudio.outputPath, options)

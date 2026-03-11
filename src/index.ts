@@ -4,7 +4,7 @@ import inquirer from 'inquirer'
 import { verifyFfmpeg } from './utils/ffmpegCheck.js'
 import { ensureConfig, loadConfig, hasApiKey } from './config/index.js'
 import { listMediaFiles, detectFileType } from './utils/fileHelpers.js'
-import { convertVideo, extractAudio, convertAudio } from './utils/ffmpegOperations.js'
+import { convertVideo, extractAudio, convertAudio, type ConversionOptions } from './utils/ffmpegOperations.js'
 import { transcribeAudio, saveTranscription } from './transcript/index.js'
 import {
   createWorkflowState,
@@ -71,7 +71,8 @@ const WORKFLOW_OPTIONS: WorkflowOption[] = [
 async function executeWorkflow(
   workflow: WorkflowOption,
   inputFile: string,
-  config: any
+  config: any,
+  conversionOptions?: ConversionOptions
 ): Promise<void> {
   const state = createWorkflowState(inputFile, workflow.steps)
   const outputDir = path.dirname(inputFile)
@@ -93,7 +94,7 @@ async function executeWorkflow(
     try {
       switch (step.name) {
         case 'Convert video':
-          currentFile = await convertVideo(currentFile, outputDir)
+          currentFile = await convertVideo(currentFile, conversionOptions)
           state.intermediateFiles.convertedVideo = currentFile
           updateStepStatus(state, i, 'completed', { outputFile: currentFile })
           break
@@ -267,8 +268,45 @@ async function main() {
     }
   }
 
+  // Ask for conversion options if workflow includes video conversion
+  let conversionOptions: ConversionOptions | undefined
+  const hasVideoConversion = workflow.steps.some(s => s === 'Convert video')
+  
+  if (hasVideoConversion) {
+    console.log('\n⚙️  Video Conversion Settings\n')
+    
+    const { preset, useHwAccel } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'preset',
+        message: 'Select conversion speed (faster = lower quality/size):',
+        choices: [
+          { name: '⚡ Ultra Fast (fastest, lowest quality)', value: 'ultrafast' },
+          { name: '⚡ Super Fast (very fast, low quality)', value: 'superfast' },
+          { name: '🚀 Very Fast (fast, good for large files)', value: 'veryfast' },
+          { name: '⚡ Faster (faster, good quality)', value: 'faster' },
+          { name: '🎯 Fast (good speed/quality balance)', value: 'fast' },
+          { name: '📊 Medium (balanced - default)', value: 'medium' },
+          { name: '🎨 Slow (slower, better quality)', value: 'slow' }
+        ],
+        default: 'medium'
+      },
+      {
+        type: 'confirm',
+        name: 'useHwAccel',
+        message: 'Try to use hardware acceleration (GPU)?',
+        default: true
+      }
+    ])
+
+    conversionOptions = {
+      preset,
+      hwaccel: useHwAccel ? 'auto' : 'none'
+    }
+  }
+
   // Execute workflow
-  await executeWorkflow(workflow, selectedFile, config)
+  await executeWorkflow(workflow, selectedFile, config, conversionOptions)
 }
 
 // Execute
