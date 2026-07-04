@@ -7,18 +7,22 @@
 import { verifyFfmpeg } from './utils/ffmpegCheck.js'
 import { ensureConfig, loadConfig, hasApiKey } from './config/index.js'
 import { listMediaFiles, detectFileType, type FileType } from './utils/fileHelpers.js'
-import { 
-  convertVideo, 
-  extractAudio, 
+import {
+  convertVideo,
+  extractAudio,
   convertAudio,
   getAudioDuration,
   splitAudioIntoChunks,
+  cutVideoSegments,
   type ConversionOptions,
   type ConversionPreset,
   type HardwareAcceleration
 } from './utils/ffmpegOperations.js'
-import { transcribeAudio, saveTranscription } from './transcript/index.js'
-import type { Config } from './types/index.js'
+import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
+import { saveSrtFile } from './subtitles/srt.js'
+import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
+import { createAIProvider, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
+import type { Config, TranscriptSegment, HighlightSegment } from './types/index.js'
 
 export interface MediaScriptOptions {
 
@@ -45,6 +49,8 @@ export interface TranscriptionResult {
   text: string
   duration?: number
   filePath: string
+  /** Segment-level timeline (start/end in seconds), used to generate SRT subtitles and highlights */
+  segments?: TranscriptSegment[]
 }
 
 export interface ConversionResult {
@@ -52,8 +58,28 @@ export interface ConversionResult {
   originalPath: string
 }
 
+export interface SubtitlesResult {
+  srtPath: string
+  segments: TranscriptSegment[]
+  text: string
+}
+
+export interface HighlightAIOptions {
+  /** Which LLM provider to use to pick the best moments */
+  provider: AIProviderName
+  /** Model id from AI_MODELS_BY_PROVIDER[provider] (custom ids are also accepted) */
+  model: string
+  apiKey: string
+  temperature?: number
+  maxTokens?: number
+}
+
 // Re-export conversion types for convenience
 export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
+
+// Re-export AI provider types/constants for convenience
+export { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, createAIProvider }
+export type { AIProviderName, TranscriptSegment, HighlightSegment }
 
 /**
  * Initialize MediaScript and verify dependencies
@@ -171,12 +197,12 @@ export async function transcribeAudioFile(
     config = loadConfig()
   }
   
-  const text = await transcribeAudio(audioPath, config)
-  
-  if (!text) {
+  const result = await transcribeAudioWithSegments(audioPath, config)
+
+  if (!result) {
     return null
   }
-  
+
   // Try to get duration
   let duration: number | undefined
   try {
@@ -184,11 +210,12 @@ export async function transcribeAudioFile(
   } catch (err) {
     // Duration is optional
   }
-  
+
   return {
-    text,
+    text: result.text,
     duration,
-    filePath: audioPath
+    filePath: audioPath,
+    segments: result.segments
   }
 }
 
@@ -203,6 +230,137 @@ export async function saveTranscriptionToFile(
   audioFilePath: string
 ): Promise<string> {
   return saveTranscription(transcriptionText, audioFilePath)
+}
+
+/**
+ * Transcribe an audio file and generate an SRT subtitle file with the full timeline.
+ * @param audioPath - Path to the audio file
+ * @param options - Optional API keys and output directory (if not provided, will use config from .env)
+ * @returns Promise with the SRT file path, segments and plain text, or null if transcription failed
+ */
+export async function generateSubtitles(
+  audioPath: string,
+  options?: MediaScriptOptions
+): Promise<SubtitlesResult | null> {
+  let config: Config
+
+  if (options?.groqApiKey || options?.openaiApiKey) {
+    config = {
+      groqApiKey: options.groqApiKey || '',
+      openaiApiKey: options.openaiApiKey || ''
+    }
+  } else {
+    config = loadConfig()
+  }
+
+  const result = await transcribeAudioWithSegments(audioPath, config)
+
+  if (!result) {
+    return null
+  }
+
+  const srtPath = saveSrtFile(result.segments, audioPath, options?.outputDir)
+
+  return {
+    srtPath,
+    segments: result.segments,
+    text: result.text
+  }
+}
+
+/**
+ * Uses an LLM (Anthropic, Gemini or OpenRouter) to select the best highlight
+ * moments from a transcript timeline, based on a free-text prompt.
+ * @param segments - Transcript segments with timestamps (e.g. from generateSubtitles)
+ * @param prompt - Free-text instructions describing what to look for (e.g. "os 3 melhores momentos de humor")
+ * @param aiOptions - Which provider/model/API key to use
+ * @returns Promise with the selected highlight segments, ordered chronologically
+ */
+export async function extractVideoHighlights(
+  segments: TranscriptSegment[],
+  prompt: string,
+  aiOptions: HighlightAIOptions
+): Promise<HighlightSegment[]> {
+  return extractHighlightsFromTranscript(segments, prompt, aiOptions)
+}
+
+/**
+ * Cuts one clip per highlight out of the source video.
+ * @param videoPath - Path to the original video file
+ * @param highlights - Highlight segments (e.g. from extractVideoHighlights)
+ * @param outputDir - Optional output directory (defaults to video file directory)
+ * @param marginSeconds - Extra seconds to keep before/after each highlight, so the
+ *   cut doesn't land exactly on the AI-picked boundary and clip off important
+ *   context. Clamped to the video's actual duration. Defaults to 0 (no margin).
+ * @returns Promise with the generated clip file paths
+ */
+export async function cutHighlightClips(
+  videoPath: string,
+  highlights: HighlightSegment[],
+  outputDir?: string,
+  marginSeconds: number = 0
+): Promise<ConversionResult[]> {
+  let clipsToCut = highlights
+
+  if (marginSeconds > 0) {
+    let maxDuration: number | undefined
+    try {
+      maxDuration = await getAudioDuration(videoPath)
+    } catch (err) {
+      // Duration probe is best-effort; margin is still applied without an upper clamp
+    }
+    clipsToCut = applyHighlightMargin(highlights, marginSeconds, maxDuration)
+  }
+
+  const outputPaths = await cutVideoSegments(
+    videoPath,
+    clipsToCut.map((highlight) => ({ start: highlight.start, end: highlight.end })),
+    outputDir
+  )
+
+  return outputPaths.map((outputPath) => ({
+    outputPath,
+    originalPath: videoPath
+  }))
+}
+
+/**
+ * Complete workflow: Extract audio + Transcribe with timeline + Ask an LLM for
+ * the best highlights + Cut one clip per highlight.
+ * @param videoPath - Path to the input video file
+ * @param prompt - Free-text instructions describing what highlights to look for
+ * @param aiOptions - Which AI provider/model/API key to use for highlight selection
+ * @param options - Optional API keys, output directory, workflow flags and clip margin
+ *
+ * @example
+ * await extractHighlightClips('interview.mp4', 'os 3 melhores momentos de humor', {
+ *   provider: 'anthropic',
+ *   model: 'claude-sonnet-5',
+ *   apiKey: process.env.ANTHROPIC_API_KEY!
+ * }, { groqApiKey: process.env.GROQ_API_KEY, clipMarginSeconds: 2 })
+ */
+export async function extractHighlightClips(
+  videoPath: string,
+  prompt: string,
+  aiOptions: HighlightAIOptions,
+  options?: MediaScriptOptions & { clipMarginSeconds?: number }
+): Promise<{
+  extractedAudio: ConversionResult
+  subtitles: SubtitlesResult
+  highlights: HighlightSegment[]
+  clips: ConversionResult[]
+}> {
+  const extractedAudio = await extractAudioFromVideo(videoPath, options?.outputDir)
+
+  const subtitles = await generateSubtitles(extractedAudio.outputPath, options)
+  if (!subtitles) {
+    throw new Error('Não foi possível transcrever o áudio para gerar os destaques')
+  }
+
+  const highlights = await extractVideoHighlights(subtitles.segments, prompt, aiOptions)
+  const clips = await cutHighlightClips(videoPath, highlights, options?.outputDir, options?.clipMarginSeconds ?? 0)
+
+  return { extractedAudio, subtitles, highlights, clips }
 }
 
 /**

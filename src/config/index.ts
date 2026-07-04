@@ -3,6 +3,40 @@ import path from 'path'
 import os from 'os'
 import inquirer from 'inquirer'
 import { Config } from '../types/index.js'
+import { AI_PROVIDER_LABELS, type AIProviderName } from '../ai/index.js'
+
+const AI_PROVIDER_CONFIG_KEYS: Record<AIProviderName, keyof Config> = {
+  anthropic: 'anthropicApiKey',
+  gemini: 'geminiApiKey',
+  openrouter: 'openrouterApiKey',
+  // Reuse the same keys already used for Whisper transcription
+  openai: 'openaiApiKey',
+  groq: 'groqApiKey'
+}
+
+export interface ApiKeyProviderDef {
+  configKey: keyof Config
+  label: string
+}
+
+/**
+ * All providers whose key can be configured from the setup screen (ensureConfig),
+ * in addition to being configurable on demand from the highlights workflow.
+ * Exported so the CLI's wizard-based prompt (src/cli/configWizard.ts) can reuse
+ * the same list without config/index.ts depending on any CLI-only, ESM-only code
+ * — this module is shared by both the ESM and CommonJS library builds.
+ */
+export const ALL_API_KEY_PROVIDERS: ApiKeyProviderDef[] = [
+  { configKey: 'groqApiKey', label: 'Groq (transcrição + IA de destaques)' },
+  { configKey: 'openaiApiKey', label: 'OpenAI (transcrição + IA de destaques)' },
+  { configKey: 'anthropicApiKey', label: 'Anthropic / Claude (IA de destaques)' },
+  { configKey: 'geminiApiKey', label: 'Google Gemini (IA de destaques)' },
+  { configKey: 'openrouterApiKey', label: 'OpenRouter (IA de destaques)' }
+]
+
+function hasAnyConfiguredKey(config: Config): boolean {
+  return ALL_API_KEY_PROVIDERS.some((provider) => !!config[provider.configKey])
+}
 
 /**
  * Returns the configuration directory based on the operating system
@@ -63,36 +97,56 @@ export function saveConfig(config: Config): void {
 }
 
 /**
- * Prompts user for API keys (interactive)
+ * Prompts the user for API keys (interactive).
+ *
+ * First asks which provider(s) they want to configure (checkbox), then iterates
+ * over just the selected ones asking for each key one at a time — instead of
+ * showing every provider's input up front.
+ *
+ * This is the plain (non-wizard) implementation used as the default for
+ * `ensureConfig` — e.g. when the library's `getConfig()` is called outside the
+ * interactive CLI. The CLI itself passes `promptApiKeysWizard` (src/cli/configWizard.ts)
+ * instead, which adds back/forward arrow-key navigation between steps; that
+ * version isn't used here so this module stays free of CLI-only, ESM-only code.
+ * @param existingConfig - Current config, used to pre-check already configured
+ *   providers and prefill their key as the default (so re-running this to add
+ *   one new provider doesn't blank out the ones already set).
  */
-export async function promptApiKeys(): Promise<Config> {
-  console.log('\n🔑 Configure your API keys (optional - press Enter to skip)\n')
-  
-  const answers = await inquirer.prompt([
+export async function promptApiKeys(existingConfig: Config = {}): Promise<Config> {
+  console.log('\n🔑 Configuração de API Keys\n')
+
+  const { selectedProviders } = await inquirer.prompt([
     {
-      type: 'input',
-      name: 'groqApiKey',
-      message: 'Groq API Key (recomendado - mais rápido):',
-      default: ''
-    },
-    {
-      type: 'input',
-      name: 'openaiApiKey',
-      message: 'OpenAI API Key:',
-      default: ''
+      type: 'checkbox',
+      name: 'selectedProviders',
+      message: 'Quais provedores você deseja configurar agora? (espaço para marcar, enter para confirmar)',
+      choices: ALL_API_KEY_PROVIDERS.map((provider) => ({
+        name: `${provider.label}${existingConfig[provider.configKey] ? ' — já configurado' : ''}`,
+        value: provider.configKey,
+        checked: !!existingConfig[provider.configKey]
+      }))
     }
   ])
-  
+
   const config: Config = {}
-  
-  if (answers.groqApiKey.trim()) {
-    config.groqApiKey = answers.groqApiKey.trim()
+
+  for (const configKey of selectedProviders as (keyof Config)[]) {
+    const provider = ALL_API_KEY_PROVIDERS.find((p) => p.configKey === configKey)!
+
+    const { apiKey } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'apiKey',
+        message: `${provider.label} — API Key:`,
+        default: existingConfig[configKey] || ''
+      }
+    ])
+
+    if (apiKey.trim()) {
+      config[configKey] = apiKey.trim()
+    }
   }
-  
-  if (answers.openaiApiKey.trim()) {
-    config.openaiApiKey = answers.openaiApiKey.trim()
-  }
-  
+
   return config
 }
 
@@ -104,20 +158,52 @@ export function hasApiKey(config: Config): boolean {
 }
 
 /**
- * Gets configuration, prompting the user if necessary
+ * Returns the configured API key for an AI provider (Anthropic/Gemini/OpenRouter),
+ * prompting and persisting it on the spot if it hasn't been configured yet.
+ * This lets the highlight-extraction workflow ask for the key exactly when it's
+ * needed, instead of requiring it upfront alongside the transcription keys.
  */
-export async function ensureConfig(): Promise<Config> {
+export async function getOrPromptAIProviderApiKey(provider: AIProviderName, config: Config): Promise<string> {
+  const configKey = AI_PROVIDER_CONFIG_KEYS[provider]
+  const existing = config[configKey]
+  if (existing) return existing
+
+  console.log(`\n🔑 Nenhuma chave de API configurada para ${AI_PROVIDER_LABELS[provider]}.`)
+
+  const { apiKey } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'apiKey',
+      message: `Informe sua API Key da ${AI_PROVIDER_LABELS[provider]}:`,
+      validate: (value: string) => value.trim().length > 0 || 'A API Key é obrigatória'
+    }
+  ])
+
+  config[configKey] = apiKey.trim()
+  saveConfig(config)
+  return config[configKey] as string
+}
+
+/**
+ * Gets configuration, prompting the user if necessary.
+ * @param promptApiKeysImpl - Which prompting implementation to use. Defaults to
+ *   the plain `promptApiKeys` above; the interactive CLI passes in
+ *   `promptApiKeysWizard` (src/cli/configWizard.ts) for arrow-key navigation.
+ */
+export async function ensureConfig(
+  promptApiKeysImpl: (existingConfig: Config) => Promise<Config> = promptApiKeys
+): Promise<Config> {
   let config = loadConfig()
-  
+
   // Display where API keys are being loaded from
   const configPath = getConfigFilePath()
   console.log(`\n🔑 API Keys Configuration`)
   console.log(`ℹ️  Loading from: ${configPath}`)
-  
+
   // If no API keys are found
-  if (!hasApiKey(config)) {
+  if (!hasAnyConfiguredKey(config)) {
     console.log('⚠️  No API keys found.')
-    
+
     const { shouldConfigure } = await inquirer.prompt([
       {
         type: 'confirm',
@@ -126,11 +212,11 @@ export async function ensureConfig(): Promise<Config> {
         default: true
       }
     ])
-    
+
     if (shouldConfigure) {
-      const newConfig = await promptApiKeys()
-      
-      if (hasApiKey(newConfig)) {
+      const newConfig = await promptApiKeysImpl(config)
+
+      if (Object.keys(newConfig).length > 0) {
         config = { ...config, ...newConfig }
         saveConfig(config)
       }
@@ -138,13 +224,12 @@ export async function ensureConfig(): Promise<Config> {
   } else {
     // Display current API keys status
     console.log('✓ API Keys found:')
-    if (config.groqApiKey) {
-      console.log('  • Groq API Key: Configured')
+    for (const provider of ALL_API_KEY_PROVIDERS) {
+      if (config[provider.configKey]) {
+        console.log(`  • ${provider.label}: Configured`)
+      }
     }
-    if (config.openaiApiKey) {
-      console.log('  • OpenAI API Key: Configured')
-    }
-    
+
     const { updateKeys } = await inquirer.prompt([
       {
         type: 'confirm',
@@ -153,16 +238,16 @@ export async function ensureConfig(): Promise<Config> {
         default: false
       }
     ])
-    
+
     if (updateKeys) {
-      const newConfig = await promptApiKeys()
-      
-      if (hasApiKey(newConfig)) {
+      const newConfig = await promptApiKeysImpl(config)
+
+      if (Object.keys(newConfig).length > 0) {
         config = { ...config, ...newConfig }
         saveConfig(config)
       }
     }
   }
-  
+
   return config
 }

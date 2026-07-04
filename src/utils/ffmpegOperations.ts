@@ -447,6 +447,70 @@ export async function splitAudioIntoChunks(
 }
 
 /**
+ * Cuts a single clip out of a video between `start` and `end` (in seconds).
+ * Re-encodes (rather than stream-copying) so the cut lands exactly on the
+ * requested boundaries instead of snapping to the nearest keyframe.
+ */
+export async function cutVideoSegment(
+  inputPath: string,
+  start: number,
+  end: number,
+  options?: { outputDir?: string; outputName?: string }
+): Promise<string> {
+  if (!(end > start)) {
+    throw new Error(`Invalid cut range: start=${start} end=${end}`)
+  }
+
+  const dir = options?.outputDir || path.dirname(inputPath)
+  const baseName = options?.outputName || `${path.basename(inputPath, path.extname(inputPath))}_cut`
+  const outputPath = uniqueOutputPath(dir, baseName, '.mp4')
+  const duration = end - start
+
+  console.log(`\n✂️  Cutting clip ${start.toFixed(1)}s -> ${end.toFixed(1)}s...`)
+
+  const args = [
+    '-ss', start.toString(),
+    '-i', inputPath,
+    '-t', duration.toString(),
+    '-c:v', 'libx264',
+    '-preset', 'fast',
+    '-crf', '20',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-movflags', '+faststart',
+    '-y',
+    outputPath
+  ]
+
+  await runFfmpegCommand(args)
+  console.log(`✓ Clip generated: ${path.basename(outputPath)}`)
+  return outputPath
+}
+
+/**
+ * Cuts multiple clips out of a video, one ffmpeg pass per segment.
+ */
+export async function cutVideoSegments(
+  inputPath: string,
+  segments: Array<{ start: number; end: number; outputName?: string }>,
+  outputDir?: string
+): Promise<string[]> {
+  const outputPaths: string[] = []
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]
+    console.log(`\n[${i + 1}/${segments.length}] Cutting segment...`)
+    const outputPath = await cutVideoSegment(inputPath, segment.start, segment.end, {
+      outputDir,
+      outputName: segment.outputName
+    })
+    outputPaths.push(outputPath)
+  }
+
+  return outputPaths
+}
+
+/**
  * Deletes a directory and all its contents
  */
 export function deleteDirectory(dirPath: string): void {

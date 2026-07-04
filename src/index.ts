@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
-import inquirer from 'inquirer'
 import { verifyFfmpeg } from './utils/ffmpegCheck.js'
-import { ensureConfig, loadConfig, hasApiKey } from './config/index.js'
+import { ensureConfig, hasApiKey, getOrPromptAIProviderApiKey } from './config/index.js'
+import { promptApiKeysWizard } from './cli/configWizard.js'
 import { listMediaFiles, detectFileType } from './utils/fileHelpers.js'
-import { convertVideo, extractAudio, convertAudio, type ConversionOptions } from './utils/ffmpegOperations.js'
-import { transcribeAudio, saveTranscription } from './transcript/index.js'
+import { convertVideo, extractAudio, convertAudio, cutVideoSegments, type ConversionOptions, type ConversionPreset } from './utils/ffmpegOperations.js'
+import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
+import { saveSrtFile } from './subtitles/srt.js'
+import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
+import { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
+import type { TranscriptSegment, HighlightSegment } from './types/index.js'
+import { runWizard, type WizardStep } from './cli/wizard.js'
 import {
   createWorkflowState,
   updateStepStatus,
@@ -15,6 +20,8 @@ import {
   getCurrentStep
 } from './workflow/state.js'
 import path from 'path'
+
+const CUSTOM_MODEL_VALUE = '__custom__'
 
 interface WorkflowOption {
   name: string
@@ -65,14 +72,42 @@ const WORKFLOW_OPTIONS: WorkflowOption[] = [
     value: 'video-extract',
     steps: ['Extract audio'],
     requiresType: 'video'
+  },
+  {
+    name: '📝 Extract subtitles with timeline (.srt) from video',
+    value: 'video-subtitles',
+    steps: ['Extract audio', 'Generate subtitles'],
+    requiresType: 'video'
+  },
+  {
+    name: '📝 Extract subtitles with timeline (.srt) from audio',
+    value: 'audio-subtitles',
+    steps: ['Generate subtitles'],
+    requiresType: 'audio'
+  },
+  {
+    name: '✨ Generate AI highlight clips from video',
+    value: 'video-highlights',
+    steps: ['Extract audio', 'Generate subtitles', 'Select highlights with AI', 'Cut clips'],
+    requiresType: 'video'
   }
 ]
+
+interface HighlightWorkflowOptions {
+  provider: AIProviderName
+  model: string
+  apiKey: string
+  prompt: string
+  /** Extra seconds kept before/after each highlight so the cut doesn't land exactly on the AI-picked boundary */
+  clipMarginSeconds: number
+}
 
 async function executeWorkflow(
   workflow: WorkflowOption,
   inputFile: string,
   config: any,
-  conversionOptions?: ConversionOptions
+  conversionOptions?: ConversionOptions,
+  highlightOptions?: HighlightWorkflowOptions
 ): Promise<void> {
   const state = createWorkflowState(inputFile, workflow.steps)
   const outputDir = path.dirname(inputFile)
@@ -83,6 +118,8 @@ async function executeWorkflow(
   let currentFile = inputFile
   let audioFile: string | undefined
   let transcriptionFile: string | undefined
+  let transcriptSegments: TranscriptSegment[] | undefined
+  let selectedHighlights: HighlightSegment[] | undefined
 
   for (let i = 0; i < state.steps.length; i++) {
     const step = getCurrentStep(state)
@@ -135,6 +172,79 @@ async function executeWorkflow(
           }
           break
 
+        case 'Generate subtitles': {
+          // Usa o arquivo de áudio atual ou o arquivo de entrada se for áudio
+          const fileToTranscribe = audioFile || currentFile
+
+          if (!hasApiKey(config)) {
+            console.log('\n⚠️  Skipping subtitles - no transcription API key configured (Groq/OpenAI)')
+            updateStepStatus(state, i, 'skipped')
+            break
+          }
+
+          const transcriptionWithSegments = await transcribeAudioWithSegments(fileToTranscribe, config)
+
+          if (transcriptionWithSegments && transcriptionWithSegments.segments.length > 0) {
+            const srtPath = saveSrtFile(transcriptionWithSegments.segments, inputFile, outputDir)
+            transcriptSegments = transcriptionWithSegments.segments
+            state.intermediateFiles.subtitlesFile = srtPath
+            console.log(`✓ Legendas salvas: ${path.basename(srtPath)}`)
+            updateStepStatus(state, i, 'completed', { outputFile: srtPath })
+          } else {
+            throw new Error('Failed to generate subtitles (no timeline returned by transcription)')
+          }
+          break
+        }
+
+        case 'Select highlights with AI': {
+          if (!transcriptSegments || transcriptSegments.length === 0) {
+            throw new Error('No transcript timeline available to analyze')
+          }
+          if (!highlightOptions) {
+            throw new Error('AI highlight options were not configured')
+          }
+
+          selectedHighlights = await extractHighlightsFromTranscript(transcriptSegments, highlightOptions.prompt, {
+            provider: highlightOptions.provider,
+            model: highlightOptions.model,
+            apiKey: highlightOptions.apiKey
+          })
+
+          if (selectedHighlights.length === 0) {
+            console.log('\n⚠️  A IA não encontrou destaques relevantes para esse pedido.')
+          }
+          updateStepStatus(state, i, 'completed')
+          break
+        }
+
+        case 'Cut clips': {
+          if (!selectedHighlights || selectedHighlights.length === 0) {
+            console.log('\n⚠️  Skipping clip cutting - no highlights selected')
+            updateStepStatus(state, i, 'skipped')
+            break
+          }
+
+          const marginSeconds = highlightOptions?.clipMarginSeconds ?? 0
+          let clipsToCut = selectedHighlights
+
+          if (marginSeconds > 0) {
+            const maxDuration = transcriptSegments?.length
+              ? transcriptSegments[transcriptSegments.length - 1].end
+              : undefined
+            clipsToCut = applyHighlightMargin(selectedHighlights, marginSeconds, maxDuration)
+            console.log(`\n✂️  Aplicando margem de ${marginSeconds}s antes/depois de cada corte...`)
+          }
+
+          const clipPaths = await cutVideoSegments(
+            inputFile,
+            clipsToCut.map((highlight) => ({ start: highlight.start, end: highlight.end })),
+            outputDir
+          )
+          state.intermediateFiles.highlightClips = clipPaths
+          updateStepStatus(state, i, 'completed', { outputFile: clipPaths.join(', ') })
+          break
+        }
+
         default:
           throw new Error(`Unknown step: ${step.name}`)
       }
@@ -164,7 +274,177 @@ async function executeWorkflow(
   if (state.intermediateFiles.transcriptionText) {
     console.log(`  • Transcription: ${path.basename(state.intermediateFiles.transcriptionText)}`)
   }
+  if (state.intermediateFiles.subtitlesFile) {
+    console.log(`  • Subtitles: ${path.basename(state.intermediateFiles.subtitlesFile)}`)
+  }
+  if (state.intermediateFiles.highlightClips?.length) {
+    console.log(`  • Highlight clips:`)
+    for (const clipPath of state.intermediateFiles.highlightClips) {
+      console.log(`      - ${path.basename(clipPath)}`)
+    }
+  }
   console.log('')
+}
+
+interface MainWizardAnswers {
+  selectedFile: string
+  selectedWorkflow: string
+  confirmNoApiKey?: boolean
+  conversionPreset?: ConversionPreset
+  useHwAccel?: boolean
+  aiProvider?: AIProviderName
+  aiModelChoice?: string
+  customModel?: string
+  highlightPromptText?: string
+  clipMarginSeconds?: string
+}
+
+function computeMainSteps(
+  answers: Partial<MainWizardAnswers>,
+  ctx: { mediaFiles: ReturnType<typeof listMediaFiles>; config: any }
+): WizardStep[] {
+  const steps: WizardStep[] = [
+    {
+      id: 'selectedFile',
+      type: 'list',
+      message: 'Select the file:',
+      choices: ctx.mediaFiles.map((f) => ({
+        name: `${f.type === 'video' ? '🎬' : '🎵'} ${f.name}`,
+        value: f.fullPath
+      }))
+    }
+  ]
+
+  if (!('selectedFile' in answers)) return steps
+
+  const fileType = detectFileType(answers.selectedFile as string)
+  const availableWorkflows = WORKFLOW_OPTIONS.filter((w) => w.requiresType === 'any' || w.requiresType === fileType)
+
+  const workflowChoices = availableWorkflows.map((w) => {
+    const requiresTranscription = w.steps.some((s) => s.includes('Transcribe') || s === 'Generate subtitles')
+    const hasKey = hasApiKey(ctx.config)
+
+    let name = w.name
+    if (requiresTranscription && !hasKey) {
+      name += ' ⚠️  (requires API key)'
+    }
+
+    return { name, value: w.value }
+  })
+
+  steps.push({
+    id: 'selectedWorkflow',
+    type: 'list',
+    message: 'Select what you want to do:',
+    choices: workflowChoices
+  })
+
+  if (!('selectedWorkflow' in answers)) return steps
+
+  const workflow = availableWorkflows.find((w) => w.value === answers.selectedWorkflow)!
+  const requiresTranscription = workflow.steps.some((s) => s.includes('Transcribe') || s === 'Generate subtitles')
+
+  if (requiresTranscription && !hasApiKey(ctx.config)) {
+    steps.push({
+      id: 'confirmNoApiKey',
+      type: 'confirm',
+      message: 'This workflow includes transcription, but no API key is configured. Continue anyway?',
+      default: true
+    })
+
+    if (!('confirmNoApiKey' in answers)) return steps
+    if (answers.confirmNoApiKey === false) return steps
+  }
+
+  const hasVideoConversion = workflow.steps.some((s) => s === 'Convert video')
+  if (hasVideoConversion) {
+    steps.push({
+      id: 'conversionPreset',
+      type: 'list',
+      message: '⚙️  Video Conversion Settings\n  Select conversion speed (faster = lower quality/size):',
+      choices: [
+        { name: '⚡ Ultra Fast (fastest, lowest quality)', value: 'ultrafast' },
+        { name: '⚡ Super Fast (very fast, low quality)', value: 'superfast' },
+        { name: '🚀 Very Fast (fast, good for large files)', value: 'veryfast' },
+        { name: '⚡ Faster (faster, good quality)', value: 'faster' },
+        { name: '🎯 Fast (good speed/quality balance)', value: 'fast' },
+        { name: '📊 Medium (balanced - default)', value: 'medium' },
+        { name: '🎨 Slow (slower, better quality)', value: 'slow' }
+      ],
+      default: 'medium'
+    })
+
+    if (!('conversionPreset' in answers)) return steps
+
+    steps.push({
+      id: 'useHwAccel',
+      type: 'confirm',
+      message: 'Try to use hardware acceleration (GPU)?',
+      default: true
+    })
+
+    if (!('useHwAccel' in answers)) return steps
+  }
+
+  const hasHighlightSelection = workflow.steps.some((s) => s === 'Select highlights with AI')
+  if (hasHighlightSelection) {
+    steps.push({
+      id: 'aiProvider',
+      type: 'list',
+      message: '✨ Configuração da IA de destaques (highlights)\n  Qual provedor de IA deseja usar para escolher os melhores trechos?',
+      choices: (Object.keys(AI_PROVIDER_LABELS) as AIProviderName[]).map((provider) => ({
+        name: AI_PROVIDER_LABELS[provider],
+        value: provider
+      }))
+    })
+
+    if (!('aiProvider' in answers)) return steps
+
+    steps.push({
+      id: 'aiModelChoice',
+      type: 'list',
+      message: 'Qual modelo deseja usar?',
+      choices: [
+        ...AI_MODELS_BY_PROVIDER[answers.aiProvider as AIProviderName].map((model) => ({ name: model, value: model })),
+        { name: '✏️  Outro (digitar manualmente)', value: CUSTOM_MODEL_VALUE }
+      ]
+    })
+
+    if (!('aiModelChoice' in answers)) return steps
+
+    if (answers.aiModelChoice === CUSTOM_MODEL_VALUE) {
+      steps.push({
+        id: 'customModel',
+        type: 'input',
+        message: 'Digite o id do modelo:',
+        validate: (value: string) => value.trim().length > 0 || 'Informe o id do modelo'
+      })
+
+      if (!('customModel' in answers)) return steps
+    }
+
+    steps.push({
+      id: 'highlightPromptText',
+      type: 'input',
+      message: 'Descreva o que a IA deve procurar (ex: "os 3 melhores momentos de humor"):',
+      validate: (value: string) => value.trim().length > 0 || 'Descreva o que você quer destacar'
+    })
+
+    if (!('highlightPromptText' in answers)) return steps
+
+    steps.push({
+      id: 'clipMarginSeconds',
+      type: 'input',
+      message: 'Quantos segundos de margem antes/depois de cada corte? (evita cortar partes importantes, ex: 2):',
+      default: '2',
+      validate: (value: string) => {
+        const n = Number(value)
+        return (!isNaN(n) && n >= 0) || 'Informe um número maior ou igual a 0'
+      }
+    })
+  }
+
+  return steps
 }
 
 async function main() {
@@ -179,7 +459,7 @@ async function main() {
   console.log('')
 
   // Ensure configuration exists (even without API keys)
-  const config = await ensureConfig()
+  const config = await ensureConfig(promptApiKeysWizard)
 
   // List files
   const currentDir = process.cwd()
@@ -194,119 +474,41 @@ async function main() {
   }
 
   console.log(`\n📁 Found ${mediaFiles.length} media file(s)\n`)
+  console.log('ℹ️  Use ← to go back to the previous step and → to redo a step you already answered.\n')
 
-  // File selection
-  const { selectedFile } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'selectedFile',
-      message: 'Select the file:',
-      choices: mediaFiles.map((f) => ({
-        name: `${f.type === 'video' ? '🎬' : '🎵'} ${f.name}`,
-        value: f.fullPath
-      }))
-    }
-  ])
+  // Walk through file/workflow/options selection as a back/forward-navigable wizard
+  const answers = await runWizard<MainWizardAnswers>((current) => computeMainSteps(current, { mediaFiles, config }))
 
-  const fileType = detectFileType(selectedFile)
+  if (answers.confirmNoApiKey === false) {
+    process.exit(0)
+  }
 
-  // Filter workflows compatible with file type
-  const availableWorkflows = WORKFLOW_OPTIONS.filter((w) => {
-    if (w.requiresType === 'any') return true
-    return w.requiresType === fileType
-  })
-
-  // Mark workflows that require API key
-  const workflowChoices = availableWorkflows.map((w) => {
-    const requiresTranscription = w.steps.some(s => s.includes('Transcribe'))
-    const hasKey = hasApiKey(config)
-    
-    let name = w.name
-    if (requiresTranscription && !hasKey) {
-      name += ' ⚠️  (requires API key)'
-    }
-    
-    return {
-      name,
-      value: w.value
-    }
-  })
-
-  // Workflow selection
-  const { selectedWorkflow } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'selectedWorkflow',
-      message: 'Select what you want to do:',
-      choices: workflowChoices
-    }
-  ])
-
-  const workflow = availableWorkflows.find((w) => w.value === selectedWorkflow)
+  const workflow = WORKFLOW_OPTIONS.find((w) => w.value === answers.selectedWorkflow)
   if (!workflow) {
     console.error('❌ Invalid workflow')
     process.exit(1)
   }
 
-  // Warning if workflow requires transcription but no API key
-  const requiresTranscription = workflow.steps.some(s => s.includes('Transcribe'))
-  if (requiresTranscription && !hasApiKey(config)) {
-    console.log('\n⚠️  This workflow includes transcription, but no API key is configured.')
-    console.log('Transcription will be skipped. Configure an API key to enable transcription.\n')
-    
-    const { confirm } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message: 'Continue anyway?',
-        default: true
-      }
-    ])
-    
-    if (!confirm) {
-      process.exit(0)
-    }
-  }
+  const conversionOptions: ConversionOptions | undefined = answers.conversionPreset
+    ? { preset: answers.conversionPreset, hwaccel: answers.useHwAccel ? 'auto' : 'none' }
+    : undefined
 
-  // Ask for conversion options if workflow includes video conversion
-  let conversionOptions: ConversionOptions | undefined
-  const hasVideoConversion = workflow.steps.some(s => s === 'Convert video')
-  
-  if (hasVideoConversion) {
-    console.log('\n⚙️  Video Conversion Settings\n')
-    
-    const { preset, useHwAccel } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'preset',
-        message: 'Select conversion speed (faster = lower quality/size):',
-        choices: [
-          { name: '⚡ Ultra Fast (fastest, lowest quality)', value: 'ultrafast' },
-          { name: '⚡ Super Fast (very fast, low quality)', value: 'superfast' },
-          { name: '🚀 Very Fast (fast, good for large files)', value: 'veryfast' },
-          { name: '⚡ Faster (faster, good quality)', value: 'faster' },
-          { name: '🎯 Fast (good speed/quality balance)', value: 'fast' },
-          { name: '📊 Medium (balanced - default)', value: 'medium' },
-          { name: '🎨 Slow (slower, better quality)', value: 'slow' }
-        ],
-        default: 'medium'
-      },
-      {
-        type: 'confirm',
-        name: 'useHwAccel',
-        message: 'Try to use hardware acceleration (GPU)?',
-        default: true
-      }
-    ])
+  let highlightOptions: HighlightWorkflowOptions | undefined
+  if (answers.aiProvider) {
+    // Prompts (and persists) the API key for the chosen provider, right here in the flow
+    const aiApiKey = await getOrPromptAIProviderApiKey(answers.aiProvider, config)
 
-    conversionOptions = {
-      preset,
-      hwaccel: useHwAccel ? 'auto' : 'none'
+    highlightOptions = {
+      provider: answers.aiProvider,
+      model: (answers.customModel || answers.aiModelChoice || '').trim(),
+      apiKey: aiApiKey,
+      prompt: (answers.highlightPromptText || '').trim(),
+      clipMarginSeconds: Number(answers.clipMarginSeconds) || 0
     }
   }
 
   // Execute workflow
-  await executeWorkflow(workflow, selectedFile, config, conversionOptions)
+  await executeWorkflow(workflow, answers.selectedFile, config, conversionOptions, highlightOptions)
 }
 
 // Execute

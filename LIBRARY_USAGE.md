@@ -164,6 +164,90 @@ const filePath = await saveTranscriptionToFile(
 console.log('Transcrição salva em:', filePath)
 ```
 
+### 7. Gerar Legendas com Timeline (.srt)
+
+Transcreve o áudio e já gera um arquivo `.srt` com a timeline completa (cada trecho com seu
+`start`/`end` em segundos):
+
+```javascript
+import { generateSubtitles } from 'mediacript'
+
+const subtitles = await generateSubtitles('audio.mp3')
+if (subtitles) {
+  console.log('Legendas salvas em:', subtitles.srtPath)
+  console.log('Segmentos:', subtitles.segments) // [{ start, end, text }, ...]
+}
+```
+
+### 8. Selecionar Destaques com IA e Gerar Cortes
+
+Depois de ter os `segments` (por exemplo, vindos de `generateSubtitles`), você pode pedir para um LLM
+escolher os melhores trechos com base em um prompt livre, e depois cortar um clipe por destaque:
+
+```javascript
+import { generateSubtitles, extractVideoHighlights, cutHighlightClips } from 'mediacript'
+
+const subtitles = await generateSubtitles('video_audio.mp3')
+
+const highlights = await extractVideoHighlights(
+  subtitles.segments,
+  'os 3 melhores momentos de humor da entrevista',
+  {
+    provider: 'anthropic', // 'anthropic' | 'gemini' | 'openrouter'
+    model: 'claude-sonnet-5',
+    apiKey: process.env.ANTHROPIC_API_KEY
+  }
+)
+
+console.log('Destaques escolhidos pela IA:', highlights) // [{ start, end, title, reason }, ...]
+
+const clips = await cutHighlightClips('video.mp4', highlights, './output')
+console.log('Clipes gerados:', clips.map((clip) => clip.outputPath))
+```
+
+Ou use o workflow completo em uma única chamada (extrai áudio → transcreve → pede destaques → corta os clipes):
+
+```javascript
+import { extractHighlightClips } from 'mediacript'
+
+const result = await extractHighlightClips(
+  'video.mp4',
+  'os 3 melhores momentos de humor da entrevista',
+  {
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+    apiKey: process.env.GEMINI_API_KEY
+  },
+  { outputDir: './output' }
+)
+
+console.log('Legendas:', result.subtitles.srtPath)
+console.log('Destaques:', result.highlights)
+console.log('Clipes:', result.clips.map((clip) => clip.outputPath))
+```
+
+**Provedores e modelos suportados:**
+
+```javascript
+import { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS } from 'mediacript'
+
+console.log(AI_MODELS_BY_PROVIDER)
+// {
+//   anthropic: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-fable-5'],
+//   gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview'],
+//   openrouter: ['anthropic/claude-sonnet-4.5', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini', ...],
+//   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'],
+//   groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b', ...]
+// }
+```
+
+Essas listas são apenas sugestões — qualquer id de modelo válido para o provedor escolhido também
+funciona (na CLI interativa isso aparece como a opção "Outro (digitar manualmente)").
+
+Ao usar `provider: 'openai'` ou `provider: 'groq'` para escolher os destaques, você pode passar a
+**mesma API key** já usada para transcrição (`process.env.OPENAI_API_KEY` / `process.env.GROQ_API_KEY`)
+— não é uma conta separada.
+
 ## Workflows Completos
 
 ### Processar Vídeo Completo (Converter + Extrair Áudio + Transcrever)
@@ -391,8 +475,12 @@ Veja o arquivo `src/lib.ts` para a definição completa de tipos e funções dis
 - `convertVideoFile(path, outputDir?)` - Converte vídeo para H.264/AAC
 - `extractAudioFromVideo(path, outputDir?)` - Extrai áudio de vídeo
 - `convertAudioFile(path, outputDir?)` - Converte áudio para MP3
-- `transcribeAudioFile(path, options?)` - Transcreve áudio
+- `transcribeAudioFile(path, options?)` - Transcreve áudio (já inclui `segments` com timeline)
 - `saveTranscriptionToFile(text, audioPath)` - Salva transcrição em arquivo
+- `generateSubtitles(path, options?)` - Transcreve e gera um arquivo `.srt` com a timeline
+- `extractVideoHighlights(segments, prompt, aiOptions)` - Pede para uma IA escolher os melhores trechos
+- `cutHighlightClips(videoPath, highlights, outputDir?)` - Corta um clipe por destaque
+- `extractHighlightClips(videoPath, prompt, aiOptions, options?)` - Workflow completo: extrai áudio, transcreve, pede destaques à IA e corta os clipes
 - `processVideo(path, outputDir?, options?)` - Workflow completo
 - `extractAndTranscribe(path, outputDir?, options?)` - Extrai e transcreve
 - `convertAndTranscribe(path, outputDir?, options?)` - Converte e transcreve
@@ -409,11 +497,41 @@ interface TranscriptionResult {
   text: string
   duration?: number
   filePath: string
+  segments?: TranscriptSegment[]
 }
 
 interface ConversionResult {
   outputPath: string
   originalPath: string
+}
+
+interface TranscriptSegment {
+  start: number // segundos
+  end: number   // segundos
+  text: string
+}
+
+interface HighlightSegment {
+  start: number // segundos
+  end: number   // segundos
+  title: string
+  reason?: string
+}
+
+interface SubtitlesResult {
+  srtPath: string
+  segments: TranscriptSegment[]
+  text: string
+}
+
+type AIProviderName = 'anthropic' | 'gemini' | 'openrouter' | 'openai' | 'groq'
+
+interface HighlightAIOptions {
+  provider: AIProviderName
+  model: string
+  apiKey: string
+  temperature?: number
+  maxTokens?: number
 }
 ```
 

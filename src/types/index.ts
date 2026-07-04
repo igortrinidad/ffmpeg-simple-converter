@@ -1,6 +1,22 @@
 export interface Config {
   openaiApiKey?: string
   groqApiKey?: string
+  anthropicApiKey?: string
+  geminiApiKey?: string
+  openrouterApiKey?: string
+}
+
+export interface TranscriptSegment {
+  start: number
+  end: number
+  text: string
+}
+
+export interface HighlightSegment {
+  start: number
+  end: number
+  title: string
+  reason?: string
 }
 
 export interface WorkflowStep {
@@ -21,6 +37,8 @@ export interface WorkflowState {
     convertedVideo?: string
     extractedAudio?: string
     transcriptionText?: string
+    subtitlesFile?: string
+    highlightClips?: string[]
   }
 }
 

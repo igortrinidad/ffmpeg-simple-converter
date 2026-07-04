@@ -8,6 +8,8 @@ Powerful and flexible CLI **and Node.js library** for converting videos/audio an
 - 📦 **CLI & Library**: Use as command-line tool or Node.js library
 - 🔄 **Multi-Step Workflow**: Combine multiple operations in a single flow
 - 🎙️ **AI Transcription**: Support for Groq (fast) and OpenAI Whisper
+- 📝 **Subtitles with timeline**: Generate `.srt` files from the transcription timeline
+- ✨ **AI-powered highlight clips**: Describe what you're looking for and let an LLM (Anthropic, Gemini or OpenRouter) pick the best moments — then cut one clip per highlight automatically
 - 💾 **State Management**: Saves progress of each workflow step
 - 🔑 **Persistent Configuration**: API keys saved locally and securely
 - 📊 **Visual Progress**: Track each step of the process
@@ -110,11 +112,14 @@ The CLI will:
 - **Extract audio from video + Transcribe**: To transcribe videos
 - **Only convert video**: Optimize video (H.264/AAC)
 - **Only extract audio from video**: Extract audio as MP3
+- **Extract subtitles with timeline (.srt)**: Transcribe and save a subtitle file with the full timeline
+- **Generate AI highlight clips**: Transcribe, describe what you're looking for in plain text, and let an LLM (Anthropic, Gemini or OpenRouter) select the best moments — one `.mp4` clip is cut per highlight
 
 #### For Audio 🎵
 - **Convert audio + Transcribe**: Convert and transcribe
 - **Only transcribe audio**: Direct transcription
 - **Only convert audio**: Convert to MP3
+- **Extract subtitles with timeline (.srt)**: Transcribe and save a subtitle file with the full timeline
 
 ## 🔑 API Keys Configuration
 
@@ -155,6 +160,23 @@ The first time you run it, you'll be asked if you want to configure your API key
 The system automatically tries in the following order:
 1. **Groq** (if configured) - faster and cheaper
 2. **OpenAI** (fallback) - if Groq fails or is not configured
+
+### AI Highlight Clips — Provider & Model
+
+The "Generate AI highlight clips" workflow needs an LLM to read the transcript timeline and pick the
+best moments. When you pick this workflow the CLI asks you to choose:
+
+1. A **provider**: Anthropic (Claude), Google (Gemini), OpenRouter, OpenAI or Groq
+2. A **model** from a curated list for that provider (or type a custom model id)
+3. Its **API key** — if it isn't configured yet, you're prompted for it right there and it gets saved
+   for next time in the same config file
+
+Choosing **OpenAI** or **Groq** here reuses the exact same API key already configured for Whisper
+transcription — no extra setup needed if you've already configured one of those for transcription.
+Anthropic, Gemini and OpenRouter each use their own key.
+
+You can reconfigure any of these keys at any point — just pick the highlights workflow again and enter
+a new key when prompted.
 
 ## 📊 Usage Example
 
@@ -212,7 +234,10 @@ $ npm start
 
 ```
 src/
+├── ai/              # LLM provider abstraction (Anthropic, Gemini, OpenRouter)
 ├── config/          # Configuration and API keys management
+├── highlights/       # AI highlight-selection from a transcript timeline
+├── subtitles/        # SRT subtitle generation
 ├── transcript/      # Transcription modules (Groq and OpenAI)
 ├── types/           # TypeScript definitions
 ├── utils/           # Utilities (ffmpeg, files, etc)
@@ -255,7 +280,9 @@ Each workflow saves its state to `.workflow-state.json` in the output directory:
   "intermediateFiles": {
     "convertedVideo": "video_converted.mp4",
     "extractedAudio": "video_audio.mp3",
-    "transcriptionText": "video_audio.txt"
+    "transcriptionText": "video_audio.txt",
+    "subtitlesFile": "video.srt",
+    "highlightClips": ["video_cut.mp4", "video_cut_1.mp4"]
   }
 }
 ```

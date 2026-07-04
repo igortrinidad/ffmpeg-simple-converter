@@ -1,38 +1,158 @@
 import path from 'path'
 import fs from 'fs'
-import { Config } from '../types/index.js'
+import { Config, TranscriptSegment } from '../types/index.js'
 import { groqTranscriptAudio } from './groq.js'
 import { openaiTranscriptAudio } from './openai.js'
 import { getFileSize, bytesToMB } from '../utils/fileHelpers.js'
-import { splitAudioIntoChunks, deleteDirectory } from '../utils/ffmpegOperations.js'
+import { splitAudioIntoChunks, deleteDirectory, getAudioDuration } from '../utils/ffmpegOperations.js'
 
 const MAX_FILE_SIZE_MB = 10
 
+export interface TranscriptionWithSegments {
+  text: string
+  segments: TranscriptSegment[]
+}
+
+interface TranscriptionProvider {
+  name: string
+  transcribe: (audioFilePath: string) => Promise<TranscriptionWithSegments | null>
+}
+
 /**
- * Transcribes a single audio file using Groq or OpenAI
+ * Builds the ordered list of configured transcription providers (Groq first —
+ * faster and cheaper — then OpenAI). Only providers with an API key configured
+ * are included.
+ */
+function getAvailableProviders(config: Config): TranscriptionProvider[] {
+  const providers: TranscriptionProvider[] = []
+
+  if (config.groqApiKey) {
+    providers.push({ name: 'Groq', transcribe: (audioFilePath) => groqTranscriptAudio(audioFilePath, config.groqApiKey!) })
+  }
+
+  if (config.openaiApiKey) {
+    providers.push({ name: 'OpenAI', transcribe: (audioFilePath) => openaiTranscriptAudio(audioFilePath, config.openaiApiKey!) })
+  }
+
+  return providers
+}
+
+/**
+ * Transcribes a single audio file, trying each configured provider exactly
+ * once, in order, moving on to the next as soon as one fails — until one
+ * succeeds or every option has been exhausted.
  */
 async function transcribeSingleAudio(
   audioFilePath: string,
-  config: Config
-): Promise<string | null> {
-  
-  // Try Groq first (faster and cheaper)
-  if (config.groqApiKey) {
-    const result = await groqTranscriptAudio(audioFilePath, config.groqApiKey)
+  providers: TranscriptionProvider[]
+): Promise<TranscriptionWithSegments | null> {
+  for (const provider of providers) {
+    console.log(`📡 Trying ${provider.name} Whisper...`)
+    const result = await provider.transcribe(audioFilePath)
     if (result) {
+      console.log(`✓ Transcription completed with ${provider.name}`)
       return result
     }
+    console.log(`⚠️  Failed with ${provider.name}, trying next provider...`)
   }
-  
-  // If Groq failed or is not configured, try OpenAI
-  if (config.openaiApiKey) {
-    const result = await openaiTranscriptAudio(audioFilePath, config.openaiApiKey)
-    if (result) {
-      return result
-    }
-  }
-  
+
   return null
+}
+
+/**
+ * Transcribes an audio file, automatically splitting if larger than 10MB
+ * Returns both the plain text and the segment-level timeline (with timestamps
+ * rebased to the original file when the audio had to be split into chunks).
+ * @param audioFilePath - Audio file path
+ * @param config - Configuration with API keys
+ * @returns Transcribed text and segments, or null
+ */
+export async function transcribeAudioWithSegments(
+  audioFilePath: string,
+  config: Config
+): Promise<TranscriptionWithSegments | null> {
+
+  console.log(`\n🎙️  Transcribing: ${path.basename(audioFilePath)}`)
+
+  const providers = getAvailableProviders(config)
+  if (providers.length === 0) {
+    console.error('❌ No transcription provider configured (Groq/OpenAI)')
+    return null
+  }
+
+  const fileSize = getFileSize(audioFilePath)
+  const fileSizeMB = bytesToMB(fileSize)
+
+  console.log(`📦 File size: ${fileSizeMB.toFixed(2)}MB`)
+
+  // If file is small enough, transcribe directly
+  if (fileSizeMB <= MAX_FILE_SIZE_MB) {
+    console.log('📡 File size is within limits, transcribing directly...')
+
+    const result = await transcribeSingleAudio(audioFilePath, providers)
+    if (!result) {
+      console.error('❌ Failed to transcribe with all available services')
+    }
+    return result
+  }
+
+  // File is too large, split into chunks
+  console.log(`⚠️  File exceeds ${MAX_FILE_SIZE_MB}MB limit, splitting into chunks...`)
+
+  let chunkFiles: string[] = []
+  let tempDir: string = ''
+
+  try {
+    chunkFiles = await splitAudioIntoChunks(audioFilePath, MAX_FILE_SIZE_MB)
+    tempDir = path.dirname(chunkFiles[0])
+
+    const textParts: string[] = []
+    const allSegments: TranscriptSegment[] = []
+    let timeOffset = 0
+
+    // Transcribe each chunk
+    for (let i = 0; i < chunkFiles.length; i++) {
+      const chunkFile = chunkFiles[i]
+      const chunkSize = bytesToMB(getFileSize(chunkFile))
+
+      console.log(`\n[${i + 1}/${chunkFiles.length}] Transcribing chunk: ${path.basename(chunkFile)} (${chunkSize.toFixed(2)}MB)`)
+
+      const chunkResult = await transcribeSingleAudio(chunkFile, providers)
+
+      if (!chunkResult) {
+        // If we couldn't transcribe this chunk with any provider, fail
+        console.error(`❌ Failed to transcribe chunk ${i + 1} with all available services`)
+        return null
+      }
+
+      textParts.push(chunkResult.text)
+      for (const segment of chunkResult.segments) {
+        allSegments.push({
+          start: segment.start + timeOffset,
+          end: segment.end + timeOffset,
+          text: segment.text
+        })
+      }
+
+      // Rebase the next chunk's timestamps using this chunk's real duration
+      timeOffset += await getAudioDuration(chunkFile)
+    }
+
+    // Combine all transcriptions
+    console.log('\n🔗 Combining all transcriptions...')
+    const finalTranscription = textParts.join('\n\n')
+    console.log(`✓ Successfully transcribed all ${chunkFiles.length} chunks`)
+
+    return { text: finalTranscription, segments: allSegments }
+
+  } finally {
+    // Clean up temp directory
+    if (tempDir) {
+      console.log('\n🧹 Cleaning up temporary files...')
+      deleteDirectory(tempDir)
+      console.log('✓ Cleanup complete')
+    }
+  }
 }
 
 /**
@@ -45,101 +165,8 @@ export async function transcribeAudio(
   audioFilePath: string,
   config: Config
 ): Promise<string | null> {
-  
-  console.log(`\n🎙️  Transcribing: ${path.basename(audioFilePath)}`)
-  
-  const fileSize = getFileSize(audioFilePath)
-  const fileSizeMB = bytesToMB(fileSize)
-  
-  console.log(`📦 File size: ${fileSizeMB.toFixed(2)}MB`)
-  
-  // If file is small enough, transcribe directly
-  if (fileSizeMB <= MAX_FILE_SIZE_MB) {
-    console.log('📡 File size is within limits, transcribing directly...')
-    
-    if (config.groqApiKey) {
-      console.log('📡 Trying Groq Whisper (fast)...')
-      const result = await transcribeSingleAudio(audioFilePath, config)
-      if (result) {
-        console.log('✓ Transcription completed with Groq')
-        return result
-      }
-      console.log('⚠️  Failed with Groq, trying OpenAI...')
-    }
-    
-    if (config.openaiApiKey) {
-      console.log('📡 Trying OpenAI Whisper...')
-      const result = await transcribeSingleAudio(audioFilePath, config)
-      if (result) {
-        console.log('✓ Transcription completed with OpenAI')
-        return result
-      }
-    }
-    
-    console.error('❌ Failed to transcribe with all available services')
-    return null
-  }
-  
-  // File is too large, split into chunks
-  console.log(`⚠️  File exceeds ${MAX_FILE_SIZE_MB}MB limit, splitting into chunks...`)
-  
-  let chunkFiles: string[] = []
-  let tempDir: string = ''
-  
-  try {
-    chunkFiles = await splitAudioIntoChunks(audioFilePath, MAX_FILE_SIZE_MB)
-    tempDir = path.dirname(chunkFiles[0])
-    
-    const transcriptions: string[] = []
-    
-    // Transcribe each chunk
-    for (let i = 0; i < chunkFiles.length; i++) {
-      const chunkFile = chunkFiles[i]
-      const chunkSize = bytesToMB(getFileSize(chunkFile))
-      
-      console.log(`\n[${i + 1}/${chunkFiles.length}] Transcribing chunk: ${path.basename(chunkFile)} (${chunkSize.toFixed(2)}MB)`)
-      
-      if (config.groqApiKey) {
-        console.log('📡 Trying Groq Whisper (fast)...')
-        const result = await transcribeSingleAudio(chunkFile, config)
-        if (result) {
-          console.log(`✓ Chunk ${i + 1} transcribed with Groq`)
-          transcriptions.push(result)
-          continue
-        }
-        console.log('⚠️  Failed with Groq, trying OpenAI...')
-      }
-      
-      if (config.openaiApiKey) {
-        console.log('📡 Trying OpenAI Whisper...')
-        const result = await transcribeSingleAudio(chunkFile, config)
-        if (result) {
-          console.log(`✓ Chunk ${i + 1} transcribed with OpenAI`)
-          transcriptions.push(result)
-          continue
-        }
-      }
-      
-      // If we couldn't transcribe this chunk, fail
-      console.error(`❌ Failed to transcribe chunk ${i + 1}`)
-      return null
-    }
-    
-    // Combine all transcriptions
-    console.log('\n🔗 Combining all transcriptions...')
-    const finalTranscription = transcriptions.join('\n\n')
-    console.log(`✓ Successfully transcribed all ${chunkFiles.length} chunks`)
-    
-    return finalTranscription
-    
-  } finally {
-    // Clean up temp directory
-    if (tempDir) {
-      console.log('\n🧹 Cleaning up temporary files...')
-      deleteDirectory(tempDir)
-      console.log('✓ Cleanup complete')
-    }
-  }
+  const result = await transcribeAudioWithSegments(audioFilePath, config)
+  return result?.text ?? null
 }
 
 /**
