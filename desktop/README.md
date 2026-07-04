@@ -30,11 +30,11 @@ assinado/notarizado, então o Gatekeeper do macOS coloca o app em quarentena ao 
 "Mediacript está danificado e não pode ser aberto"). Depois de baixar o `.dmg`, rode:
 
 ```bash
-npx mediacript-unlock-mac
+npx mediacript unlock-mac
 ```
 
-Isso monta o DMG, instala o app em `/Applications`, remove a quarentena e já abre o Mediacript. Veja
-mais detalhes em [`../unlock-mac`](../unlock-mac).
+Isso monta o DMG, instala o app em `/Applications`, remove a quarentena e já abre o Mediacript
+(script em [`../unlock-mac.mjs`](../unlock-mac.mjs)).
 
 ## Desenvolvimento
 
