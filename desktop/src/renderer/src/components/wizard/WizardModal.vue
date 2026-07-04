@@ -6,13 +6,15 @@ import type {
   ConversionPreset,
   FileKind,
   JobEvent,
-  OperationId
+  OperationId,
+  RetryRequest
 } from '@shared/types'
 import { useSettings } from '../../composables/useSettings'
 
 const props = defineProps<{
   filePaths: string[]
   fileKind: FileKind
+  initialRequest?: RetryRequest | null
 }>()
 
 const emit = defineEmits<{
@@ -77,6 +79,44 @@ function selectOperation(id: OperationId): void {
     highlightForm.modelChoice = firstConfigured.models[0] ?? CUSTOM_MODEL
   }
 }
+
+/**
+ * Pre-fills the wizard from a history entry being retried, so the file's
+ * previous options/prompt aren't lost, and jumps past the "operation" step
+ * straight to where the user can review (and still tweak) before running.
+ */
+function applyInitialRequest(request: RetryRequest): void {
+  operationId.value = request.operation
+
+  if (request.conversionOptions) {
+    conversionForm.preset = request.conversionOptions.preset
+    conversionForm.hwaccel = request.conversionOptions.hwaccel
+  }
+
+  if (request.highlightOptions) {
+    highlightForm.provider = request.highlightOptions.provider
+    highlightForm.prompt = request.highlightOptions.prompt
+    highlightForm.marginSeconds = request.highlightOptions.marginSeconds
+
+    const model = request.highlightOptions.model
+    const knownModels = settings.aiProviders.find((p) => p.provider === highlightForm.provider)?.models ?? []
+    if (knownModels.includes(model)) {
+      highlightForm.modelChoice = model
+    } else {
+      highlightForm.modelChoice = CUSTOM_MODEL
+      highlightForm.customModel = model
+    }
+  }
+
+  const target = operation.value?.needsConversionOptions || operation.value?.needsHighlightOptions
+    ? 'options'
+    : 'review'
+  stepIndex.value = stepOrder.value.indexOf(target)
+}
+
+onMounted(() => {
+  if (props.initialRequest) applyInitialRequest(props.initialRequest)
+})
 
 function goNext(): void {
   if (currentStep.value === 'operation' && !operationId.value) return

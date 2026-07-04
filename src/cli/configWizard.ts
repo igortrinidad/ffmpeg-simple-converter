@@ -1,4 +1,4 @@
-import { ALL_API_KEY_PROVIDERS } from '../config/index.js'
+import { ALL_API_KEY_PROVIDERS, type ApiKeyConfigKey } from '../config/index.js'
 import type { Config } from '../types/index.js'
 import { runWizard, type WizardStep } from './wizard.js'
 
@@ -15,7 +15,7 @@ import { runWizard, type WizardStep } from './wizard.js'
 export async function promptApiKeysWizard(existingConfig: Config = {}): Promise<Config> {
   console.log('\n🔑 Configuração de API Keys\n')
 
-  const answers = await runWizard<{ selectedProviders: (keyof Config)[]; [key: string]: any }>((current) => {
+  const answers = await runWizard<{ selectedProviders: ApiKeyConfigKey[]; [key: string]: any }>((current) => {
     const steps: WizardStep[] = [
       {
         id: 'selectedProviders',
@@ -33,7 +33,7 @@ export async function promptApiKeysWizard(existingConfig: Config = {}): Promise<
 
     if (!('selectedProviders' in current)) return steps
 
-    for (const configKey of (current.selectedProviders || []) as (keyof Config)[]) {
+    for (const configKey of (current.selectedProviders || []) as ApiKeyConfigKey[]) {
       const provider = ALL_API_KEY_PROVIDERS.find((p) => p.configKey === configKey)!
       steps.push({
         id: `key:${configKey}`,

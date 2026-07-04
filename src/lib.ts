@@ -26,7 +26,7 @@ import { saveSrtFile } from './subtitles/srt.js'
 import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
 import { generateThumbnailFrames, saveThumbnailPrompts, DEFAULT_THUMBNAIL_FRAME_COUNT } from './thumbnails/index.js'
 import { createAIProvider, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
-import type { Config, TranscriptSegment, HighlightSegment } from './types/index.js'
+import type { Config, TranscriptSegment, HighlightSegment, HighlightFallbackModel } from './types/index.js'
 
 export interface MediaScriptOptions {
 
@@ -87,6 +87,8 @@ export interface HighlightAIOptions {
   apiKey: string
   temperature?: number
   maxTokens?: number
+  /** Extra attempts after a retryable failure (network error, timeout, 429, 5xx). Defaults to 2. */
+  maxRetries?: number
 }
 
 // Re-export conversion types for convenience
@@ -336,14 +338,17 @@ export async function generateSubtitles(
  * @param segments - Transcript segments with timestamps (e.g. from generateSubtitles)
  * @param prompt - Free-text instructions describing what to look for (e.g. "os 3 melhores momentos de humor")
  * @param aiOptions - Which provider/model/API key to use
+ * @param fallbackOptions - Ordered list of provider/model/API key alternatives to try,
+ *   in order, if `aiOptions` fails even after its own retries
  * @returns Promise with the selected highlight segments, ordered chronologically
  */
 export async function extractVideoHighlights(
   segments: TranscriptSegment[],
   prompt: string,
-  aiOptions: HighlightAIOptions
+  aiOptions: HighlightAIOptions,
+  fallbackOptions: HighlightAIOptions[] = []
 ): Promise<HighlightSegment[]> {
-  return extractHighlightsFromTranscript(segments, prompt, aiOptions)
+  return extractHighlightsFromTranscript(segments, prompt, aiOptions, fallbackOptions)
 }
 
 /**
@@ -642,4 +647,4 @@ export async function convertAndTranscribe(
 }
 
 // Re-export types for consumers
-export type { Config, FileType }
+export type { Config, FileType, HighlightFallbackModel }

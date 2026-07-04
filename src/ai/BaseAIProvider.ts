@@ -13,6 +13,7 @@ export abstract class BaseAIProvider {
   public temperature: number
   public maxTokens: number
   public timeout: number
+  public maxRetries: number
   public response: any = null
   public result: string = ''
 
@@ -24,6 +25,7 @@ export abstract class BaseAIProvider {
     this.temperature = options.temperature ?? 0.2
     this.maxTokens = options.maxTokens ?? 4096
     this.timeout = options.timeout ?? 120000
+    this.maxRetries = options.maxRetries ?? 2
   }
 
   protected abstract get axiosInstance(): AxiosInstance
@@ -31,19 +33,47 @@ export abstract class BaseAIProvider {
   protected abstract extractTextFromResponse(): string
 
   /**
+   * Whether a failed call is worth retrying: network-level failures (no response
+   * received), rate limiting (429) and server errors (5xx). Anything else (bad
+   * request, auth, invalid model) fails the same way every time, so retrying
+   * would just waste time.
+   */
+  private isRetryableError(error: any): boolean {
+    const status = error?.response?.status
+    if (status === 429 || (typeof status === 'number' && status >= 500)) return true
+    if (error?.response) return false
+    return !!error?.request || ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN'].includes(error?.code)
+  }
+
+  /**
    * Sends the messages to the provider and returns the raw text response.
+   * Retries on transient failures with exponential backoff (1s, 2s, 4s, ...)
+   * up to `maxRetries` extra attempts.
    */
   public async run(messages: AIMessage[]): Promise<string> {
     this.messages = messages.filter((message) => message.content && message.content.trim().length > 0)
 
-    try {
-      await this.invokeLLM()
-      this.result = this.extractTextFromResponse()
-      return this.result
-    } catch (error: any) {
-      const providerMessage = error?.response?.data?.error?.message || error?.response?.data?.error || error?.message
-      throw new Error(`${this.constructor.name} (${this.model}): ${providerMessage}`)
+    let lastError: any
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        await this.invokeLLM()
+        this.result = this.extractTextFromResponse()
+        return this.result
+      } catch (error: any) {
+        lastError = error
+        if (attempt === this.maxRetries || !this.isRetryableError(error)) break
+
+        const delayMs = 1000 * 2 ** attempt
+        console.warn(
+          `⚠️ ${this.constructor.name} (${this.model}) falhou (tentativa ${attempt + 1}/${this.maxRetries + 1}), tentando novamente em ${delayMs}ms...`
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
     }
+
+    const providerMessage =
+      lastError?.response?.data?.error?.message || lastError?.response?.data?.error || lastError?.message
+    throw new Error(`${this.constructor.name} (${this.model}): ${providerMessage}`)
   }
 
   /**

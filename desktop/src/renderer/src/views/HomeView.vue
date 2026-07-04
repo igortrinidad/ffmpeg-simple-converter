@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { detectFileKind } from '@shared/fileKind'
-import type { FileKind } from '@shared/types'
+import type { FileKind, RetryRequest } from '@shared/types'
 import { useSettings } from '../composables/useSettings'
+import { useRetry } from '../composables/useRetry'
 import WizardModal from '../components/wizard/WizardModal.vue'
 
 interface SelectedFile {
@@ -12,13 +13,22 @@ interface SelectedFile {
 }
 
 const { state: settings, load: loadSettings } = useSettings()
+const retry = useRetry()
 
 const files = ref<SelectedFile[]>([])
 const isDragging = ref(false)
 const showWizard = ref(false)
+const retryRequest = ref<RetryRequest | null>(null)
 
-onMounted(() => {
-  loadSettings()
+onMounted(async () => {
+  await loadSettings()
+
+  const pending = retry.consumeRetry()
+  if (pending) {
+    addPaths([pending.filePath])
+    retryRequest.value = pending
+    showWizard.value = true
+  }
 })
 
 const kindsPresent = computed(() => new Set(files.value.map((f) => f.kind).filter(Boolean)))
@@ -66,6 +76,7 @@ async function openFilePicker(): Promise<void> {
 
 function onWizardClosed(finished: boolean): void {
   showWizard.value = false
+  retryRequest.value = null
   if (finished) {
     clearFiles()
   }
@@ -125,6 +136,7 @@ function onWizardClosed(finished: boolean): void {
       v-if="showWizard && detectedKind"
       :file-paths="files.map((f) => f.path)"
       :file-kind="detectedKind"
+      :initial-request="retryRequest"
       @close="onWizardClosed"
     />
   </div>

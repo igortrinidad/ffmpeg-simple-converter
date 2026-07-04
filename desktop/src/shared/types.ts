@@ -1,9 +1,14 @@
-import type { Config as MediacriptConfig, AIProviderName as MediacriptAIProviderName } from 'mediacript'
+import type {
+  Config as MediacriptConfig,
+  AIProviderName as MediacriptAIProviderName,
+  HighlightFallbackModel as MediacriptHighlightFallbackModel
+} from 'mediacript'
 
 // Reuse the root project's types (same shared config.json) instead of
 // redefining a parallel shape that could drift out of sync.
 export type Config = MediacriptConfig
 export type AIProviderName = MediacriptAIProviderName
+export type HighlightFallbackModel = MediacriptHighlightFallbackModel
 
 export interface AIProviderOption {
   provider: AIProviderName
@@ -76,6 +81,17 @@ export interface HistoryEntry {
   finishedAt: string
   status: 'completed' | 'failed'
   error?: string
+  /** Options the job actually ran with, kept so it can be retried without retyping them */
+  conversionOptions?: ConversionOptionsInput
+  highlightOptions?: HighlightOptionsInput
+}
+
+/** What's needed to re-open the wizard pre-filled from a past history entry */
+export interface RetryRequest {
+  filePath: string
+  operation: OperationId
+  conversionOptions?: ConversionOptionsInput
+  highlightOptions?: HighlightOptionsInput
 }
 
 export interface FfmpegStatus {

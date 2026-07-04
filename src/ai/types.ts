@@ -11,4 +11,6 @@ export interface AIProviderOptions {
   temperature?: number
   maxTokens?: number
   timeout?: number
+  /** Extra attempts after a retryable failure (network error, timeout, 429, 5xx). Defaults to 2. */
+  maxRetries?: number
 }

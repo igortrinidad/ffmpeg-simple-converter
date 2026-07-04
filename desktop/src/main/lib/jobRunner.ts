@@ -11,7 +11,7 @@ import {
   createOutputFolderForFile,
   getStoredConfig
 } from 'mediacript'
-import type { TranscriptSegment, HighlightSegment } from 'mediacript'
+import type { TranscriptSegment, HighlightSegment, HighlightAIOptions } from 'mediacript'
 import { getOperation } from '../../shared/operations'
 import { addHistoryEntry } from './historyStore'
 import type { JobEvent, JobRequest, JobStepState } from '../../shared/types'
@@ -155,11 +155,16 @@ async function runJobForFile(
           throw new Error('Configuração da IA de destaques ausente')
         }
 
-        highlights = await extractVideoHighlights(transcriptSegments, request.highlightOptions.prompt, {
-          provider: request.highlightOptions.provider,
-          model: request.highlightOptions.model,
-          apiKey: resolveHighlightApiKey(request.highlightOptions.provider, config)
-        })
+        highlights = await extractVideoHighlights(
+          transcriptSegments,
+          request.highlightOptions.prompt,
+          {
+            provider: request.highlightOptions.provider,
+            model: request.highlightOptions.model,
+            apiKey: resolveHighlightApiKey(request.highlightOptions.provider, config)
+          },
+          buildHighlightFallbackOptions(config, request.highlightOptions)
+        )
 
         if (highlights.length === 0) {
           throw new Error('A IA não encontrou destaques relevantes para esse pedido')
@@ -195,8 +200,40 @@ async function runJobForFile(
     startedAt,
     finishedAt,
     status: ok ? 'completed' : 'failed',
-    error: ok ? undefined : steps.find((s) => s.status === 'failed')?.error
+    error: ok ? undefined : steps.find((s) => s.status === 'failed')?.error,
+    conversionOptions: request.conversionOptions,
+    highlightOptions: request.highlightOptions
   })
+}
+
+/**
+ * Turns the user's configured fallback list (settings, provider+model only) into
+ * ready-to-use AI options (resolving each one's API key). Entries whose provider
+ * has no key configured, or that duplicate the primary provider+model already
+ * being tried, are skipped rather than failing the whole run.
+ */
+function buildHighlightFallbackOptions(
+  config: StoredConfig,
+  primary: { provider: string; model: string }
+): HighlightAIOptions[] {
+  const fallbacks = config.highlightFallbackModels ?? []
+  const options: HighlightAIOptions[] = []
+
+  for (const fallback of fallbacks) {
+    if (fallback.provider === primary.provider && fallback.model === primary.model) continue
+
+    try {
+      options.push({
+        provider: fallback.provider,
+        model: fallback.model,
+        apiKey: resolveHighlightApiKey(fallback.provider, config)
+      })
+    } catch {
+      // No API key configured for this fallback provider — skip it instead of failing the run.
+    }
+  }
+
+  return options
 }
 
 function resolveHighlightApiKey(provider: string, config: StoredConfig): string {

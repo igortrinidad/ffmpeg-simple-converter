@@ -5,7 +5,10 @@ import inquirer from 'inquirer'
 import { Config } from '../types/index.js'
 import { AI_PROVIDER_LABELS, type AIProviderName } from '../ai/index.js'
 
-const AI_PROVIDER_CONFIG_KEYS: Record<AIProviderName, keyof Config> = {
+/** The subset of `Config` keys that hold a plain API key string (as opposed to structured settings like `highlightFallbackModels`) */
+export type ApiKeyConfigKey = 'anthropicApiKey' | 'geminiApiKey' | 'openrouterApiKey' | 'openaiApiKey' | 'groqApiKey'
+
+const AI_PROVIDER_CONFIG_KEYS: Record<AIProviderName, ApiKeyConfigKey> = {
   anthropic: 'anthropicApiKey',
   gemini: 'geminiApiKey',
   openrouter: 'openrouterApiKey',
@@ -15,7 +18,7 @@ const AI_PROVIDER_CONFIG_KEYS: Record<AIProviderName, keyof Config> = {
 }
 
 export interface ApiKeyProviderDef {
-  configKey: keyof Config
+  configKey: ApiKeyConfigKey
   label: string
 }
 

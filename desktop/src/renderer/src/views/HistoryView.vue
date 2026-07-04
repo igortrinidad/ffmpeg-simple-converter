@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, type DeepReadonly } from 'vue'
+import type { HistoryEntry, RetryRequest } from '@shared/types'
 import { useHistory } from '../composables/useHistory'
+import { useRetry } from '../composables/useRetry'
+
+const emit = defineEmits<{
+  retry: []
+}>()
 
 const { state, load, remove, clear } = useHistory()
+const retry = useRetry()
 
 onMounted(() => {
   load()
@@ -22,6 +29,17 @@ async function openFile(path: string): Promise<void> {
 
 async function revealFile(path: string): Promise<void> {
   await window.api.files.revealInFolder(path)
+}
+
+function retryEntry(entry: DeepReadonly<HistoryEntry>): void {
+  const request: RetryRequest = {
+    filePath: entry.inputFile,
+    operation: entry.operation,
+    conversionOptions: entry.conversionOptions,
+    highlightOptions: entry.highlightOptions
+  }
+  retry.setRetry(request)
+  emit('retry')
 }
 </script>
 
@@ -47,8 +65,29 @@ async function revealFile(path: string): Promise<void> {
             <div class="entry-file" :title="entry.inputFile">{{ fileName(entry.inputFile) }}</div>
           </div>
           <div class="entry-date">{{ formatDate(entry.finishedAt) }}</div>
+          <button class="btn btn-ghost" title="Repetir com a mesma configuração" @click="retryEntry(entry)">
+            🔁 Repetir
+          </button>
           <button class="btn btn-ghost" title="Remover do histórico" @click="remove(entry.id)">✕</button>
         </div>
+
+        <dl v-if="entry.conversionOptions || entry.highlightOptions" class="entry-config">
+          <template v-if="entry.conversionOptions">
+            <dt>Conversão</dt>
+            <dd>
+              velocidade: {{ entry.conversionOptions.preset }} · GPU:
+              {{ entry.conversionOptions.hwaccel ? 'sim' : 'não' }}
+            </dd>
+          </template>
+          <template v-if="entry.highlightOptions">
+            <dt>IA</dt>
+            <dd>{{ entry.highlightOptions.provider }} · {{ entry.highlightOptions.model }}</dd>
+            <dt>Prompt</dt>
+            <dd class="entry-prompt">{{ entry.highlightOptions.prompt }}</dd>
+            <dt>Margem</dt>
+            <dd>{{ entry.highlightOptions.marginSeconds }}s antes/depois</dd>
+          </template>
+        </dl>
 
         <p v-if="entry.error" class="entry-error">{{ entry.error }}</p>
 
@@ -138,6 +177,29 @@ async function revealFile(path: string): Promise<void> {
   color: var(--danger);
   font-size: 12px;
   margin: 8px 0 0;
+}
+
+.entry-config {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.entry-config dt {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.entry-config dd {
+  margin: 0;
+}
+
+.entry-prompt {
+  white-space: pre-wrap;
 }
 
 .output-list {

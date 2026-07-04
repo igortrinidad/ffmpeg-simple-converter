@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import type { AIProviderName, Config, HighlightFallbackModel } from '@shared/types'
 import { useSettings } from '../composables/useSettings'
 
 const emit = defineEmits<{
@@ -40,12 +41,63 @@ const fields = reactive<Record<ApiKeyField, { value: string; configured: boolean
 const defaultOutputDir = ref('')
 const saving = ref(false)
 
+const CUSTOM_MODEL = '__custom__'
+
+// Ordered provider/model pairs tried, in order, if the primary highlights-AI
+// call (picked per-run in the wizard) fails even after its own retries.
+const fallbackModels = ref<HighlightFallbackModel[]>([])
+
+const newFallback = reactive({
+  provider: 'anthropic' as AIProviderName,
+  modelChoice: '',
+  customModel: ''
+})
+
+const newFallbackProvider = computed(() =>
+  settings.aiProviders.find((p) => p.provider === newFallback.provider)
+)
+
+// Reset the chosen model whenever the provider changes, since the previous
+// choice may not exist in the new provider's model list.
+watch(
+  () => newFallback.provider,
+  () => {
+    newFallback.modelChoice = ''
+    newFallback.customModel = ''
+  }
+)
+
+function providerLabel(provider: AIProviderName): string {
+  return settings.aiProviders.find((p) => p.provider === provider)?.label ?? provider
+}
+
+function addFallback(): void {
+  const model = newFallback.modelChoice === CUSTOM_MODEL ? newFallback.customModel.trim() : newFallback.modelChoice
+  if (!model) return
+
+  fallbackModels.value.push({ provider: newFallback.provider, model })
+  newFallback.modelChoice = ''
+  newFallback.customModel = ''
+}
+
+function removeFallback(index: number): void {
+  fallbackModels.value.splice(index, 1)
+}
+
+function moveFallback(index: number, delta: number): void {
+  const target = index + delta
+  if (target < 0 || target >= fallbackModels.value.length) return
+  const [entry] = fallbackModels.value.splice(index, 1)
+  fallbackModels.value.splice(target, 0, entry)
+}
+
 onMounted(async () => {
   await load()
   for (const key of Object.keys(fields) as ApiKeyField[]) {
     fields[key].configured = !!settings.config[key]
   }
   defaultOutputDir.value = settings.config.defaultOutputDir ?? ''
+  fallbackModels.value = (settings.config.highlightFallbackModels ?? []).map((entry) => ({ ...entry }))
 })
 
 function toggleClear(key: ApiKeyField): void {
@@ -61,7 +113,7 @@ async function pickOutputDir(): Promise<void> {
 async function onSave(): Promise<void> {
   saving.value = true
   try {
-    const payload: Record<string, string> = {}
+    const payload: Partial<Config> = {}
 
     for (const [key, field] of Object.entries(fields) as [ApiKeyField, (typeof fields)[ApiKeyField]][]) {
       if (field.cleared) {
@@ -73,6 +125,7 @@ async function onSave(): Promise<void> {
     }
 
     payload.defaultOutputDir = defaultOutputDir.value.trim()
+    payload.highlightFallbackModels = fallbackModels.value
 
     await save(payload)
     emit('close')
@@ -136,6 +189,63 @@ async function onSave(): Promise<void> {
             </div>
           </div>
           <p class="hint">Groq e OpenAI acima também podem ser usados para escolher os destaques.</p>
+        </div>
+
+        <div class="field-group">
+          <h3>Fallback de IA (destaques)</h3>
+          <p class="hint">
+            Se o provedor/modelo escolhido no assistente falhar (mesmo após novas tentativas automáticas), os modelos
+            abaixo são tentados nesta ordem, até um funcionar.
+          </p>
+
+          <ul v-if="fallbackModels.length" class="fallback-list">
+            <li v-for="(entry, index) in fallbackModels" :key="`${entry.provider}-${entry.model}-${index}`" class="fallback-item">
+              <span class="fallback-order">{{ index + 1 }}</span>
+              <span class="fallback-label">{{ providerLabel(entry.provider) }} · {{ entry.model }}</span>
+              <div class="fallback-actions">
+                <button
+                  class="btn btn-ghost"
+                  type="button"
+                  title="Mover para cima"
+                  :disabled="index === 0"
+                  @click="moveFallback(index, -1)"
+                >
+                  ↑
+                </button>
+                <button
+                  class="btn btn-ghost"
+                  type="button"
+                  title="Mover para baixo"
+                  :disabled="index === fallbackModels.length - 1"
+                  @click="moveFallback(index, 1)"
+                >
+                  ↓
+                </button>
+                <button class="btn btn-ghost" type="button" title="Remover" @click="removeFallback(index)">✕</button>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="hint">Nenhum fallback configurado.</p>
+
+          <div class="fallback-add-row">
+            <select v-model="newFallback.provider">
+              <option v-for="p in settings.aiProviders" :key="p.provider" :value="p.provider">
+                {{ p.label }}
+              </option>
+            </select>
+            <select v-model="newFallback.modelChoice">
+              <option value="" disabled>Modelo…</option>
+              <option v-for="m in newFallbackProvider?.models ?? []" :key="m" :value="m">{{ m }}</option>
+              <option :value="CUSTOM_MODEL">✏️ Outro (digitar manualmente)</option>
+            </select>
+            <input
+              v-if="newFallback.modelChoice === CUSTOM_MODEL"
+              v-model="newFallback.customModel"
+              type="text"
+              placeholder="id do modelo"
+            />
+            <button class="btn" type="button" @click="addFallback">+ Adicionar</button>
+          </div>
         </div>
 
         <div class="field-group">
@@ -233,6 +343,56 @@ async function onSave(): Promise<void> {
 .badge-cleared {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+.fallback-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fallback-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.fallback-order {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
+.fallback-label {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fallback-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.fallback-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fallback-add-row select,
+.fallback-add-row input {
+  flex: 1;
 }
 
 .key-field-row {

@@ -40,7 +40,7 @@ const showSettings = ref(false)
 
     <main class="content">
       <HomeView v-if="currentScreen === 'home'" />
-      <HistoryView v-else />
+      <HistoryView v-else @retry="currentScreen = 'home'" />
     </main>
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />

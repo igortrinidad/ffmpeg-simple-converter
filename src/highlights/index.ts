@@ -8,6 +8,7 @@ export interface HighlightExtractionOptions {
   apiKey: string
   temperature?: number
   maxTokens?: number
+  maxRetries?: number
 }
 
 function buildTimelineText(segments: TranscriptSegment[]): string {
@@ -50,24 +51,17 @@ function isValidHighlight(value: any): value is HighlightSegment {
     && value.end > value.start
 }
 
-/**
- * Uses an LLM (Anthropic/Gemini/OpenRouter) to pick the best highlight
- * segments from a transcript timeline, based on a free-text prompt.
- */
-export async function extractHighlightsFromTranscript(
+async function runExtraction(
   segments: TranscriptSegment[],
   prompt: string,
   options: HighlightExtractionOptions
 ): Promise<HighlightSegment[]> {
-  if (!segments.length) {
-    throw new Error('Nenhum segmento de transcrição disponível para analisar')
-  }
-
   const provider = createAIProvider(options.provider, {
     apiKey: options.apiKey,
     model: options.model,
     temperature: options.temperature ?? 0.2,
-    maxTokens: options.maxTokens ?? 4096
+    maxTokens: options.maxTokens ?? 4096,
+    maxRetries: options.maxRetries
   })
 
   const timelineText = buildTimelineText(segments)
@@ -118,6 +112,44 @@ export async function extractHighlightsFromTranscript(
   console.log(`✓ ${highlights.length} destaque(s) selecionado(s) pela IA`)
 
   return highlights
+}
+
+/**
+ * Uses an LLM (Anthropic/Gemini/OpenRouter/OpenAI/Groq) to pick the best highlight
+ * segments from a transcript timeline, based on a free-text prompt.
+ *
+ * Each individual call already retries transient failures on its own (see
+ * `BaseAIProvider.run`). If `options` still fails after those retries — e.g. the
+ * provider is down or out of credits — the entries in `fallbackOptions` are tried
+ * next, in order, until one succeeds or the list is exhausted.
+ */
+export async function extractHighlightsFromTranscript(
+  segments: TranscriptSegment[],
+  prompt: string,
+  options: HighlightExtractionOptions,
+  fallbackOptions: HighlightExtractionOptions[] = []
+): Promise<HighlightSegment[]> {
+  if (!segments.length) {
+    throw new Error('Nenhum segmento de transcrição disponível para analisar')
+  }
+
+  const attempts = [options, ...fallbackOptions]
+  let lastError: Error | undefined
+
+  for (let i = 0; i < attempts.length; i++) {
+    const attemptOptions = attempts[i]
+    try {
+      if (i > 0) {
+        console.log(`\n↪️ Tentando fallback ${i}/${fallbackOptions.length}: ${attemptOptions.provider} (${attemptOptions.model})...`)
+      }
+      return await runExtraction(segments, prompt, attemptOptions)
+    } catch (error: any) {
+      lastError = error
+      console.warn(`⚠️ Falha ao gerar destaques com ${attemptOptions.provider} (${attemptOptions.model}): ${error.message}`)
+    }
+  }
+
+  throw new Error(`Todos os provedores de IA configurados falharam. Último erro: ${lastError?.message}`)
 }
 
 /**
