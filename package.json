@@ -43,7 +43,7 @@
     "build": "npm run build:esm && npm run build:cjs && npm run build:post",
     "build:esm": "tsc",
     "build:cjs": "tsc --project tsconfig.cjs.json",
-    "build:post": "cp dist-esm-package.json dist/esm/package.json && cp dist-cjs-package.json dist/cjs/package.json && chmod +x dist/esm/index.js && chmod +x cli.mjs",
+    "build:post": "shx cp dist-esm-package.json dist/esm/package.json && shx cp dist-cjs-package.json dist/cjs/package.json && shx chmod +x dist/esm/index.js && shx chmod +x cli.mjs",
     "dev": "node --loader ts-node/esm --watch src/index.ts",
     "test": "NODE_OPTIONS=\"--experimental-vm-modules\" jest",
     "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --watch",
@@ -67,6 +67,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.0.10",
     "jest": "^30.3.0",
+    "shx": "^0.4.0",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
