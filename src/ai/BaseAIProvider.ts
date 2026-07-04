@@ -14,8 +14,11 @@ export abstract class BaseAIProvider {
   public maxTokens: number
   public timeout: number
   public maxRetries: number
+  public thinkingBudget?: number
   public response: any = null
   public result: string = ''
+  /** Set by `extractTextFromResponse()` when the provider reports the answer was cut off by `maxTokens` */
+  public truncated: boolean = false
 
   protected messages: AIMessage[] = []
 
@@ -26,6 +29,7 @@ export abstract class BaseAIProvider {
     this.maxTokens = options.maxTokens ?? 4096
     this.timeout = options.timeout ?? 120000
     this.maxRetries = options.maxRetries ?? 2
+    this.thinkingBudget = options.thinkingBudget
   }
 
   protected abstract get axiosInstance(): AxiosInstance
@@ -52,6 +56,7 @@ export abstract class BaseAIProvider {
    */
   public async run(messages: AIMessage[]): Promise<string> {
     this.messages = messages.filter((message) => message.content && message.content.trim().length > 0)
+    this.truncated = false
 
     let lastError: any
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
@@ -79,17 +84,41 @@ export abstract class BaseAIProvider {
   /**
    * Sends the messages and parses the response as JSON, tolerating markdown
    * code fences or leading/trailing text around the JSON payload.
+   *
+   * If the response gets cut off by `maxTokens` and nothing usable could even be
+   * salvaged from the partial JSON (see `truncatedArrayRepairParse`), doubles
+   * `maxTokens` and tries again — up to 2 extra attempts — before giving up.
+   * Verbose prompts (e.g. asking for several long, detailed items per response)
+   * can need well more than the default budget, and this adapts to that instead
+   * of forcing every caller to guess the right `maxTokens` upfront.
    */
   public async runJSON<T = any>(messages: AIMessage[]): Promise<T> {
-    const content = await this.run(messages)
-    return this.parseJSONResult(content)
+    const maxTruncationRetries = 2
+
+    for (let attempt = 0; attempt <= maxTruncationRetries; attempt++) {
+      const content = await this.run(messages)
+      try {
+        return this.parseJSONResult(content)
+      } catch (error: any) {
+        if (!this.truncated || attempt === maxTruncationRetries) throw error
+
+        this.maxTokens *= 2
+        console.warn(
+          `⚠️ ${this.constructor.name} (${this.model}): resposta truncada e nada pôde ser recuperado, tentando novamente com maxTokens=${this.maxTokens}...`
+        )
+      }
+    }
+
+    // Unreachable: the loop above always either returns or throws.
+    throw new Error(`${this.constructor.name} (${this.model}): falha ao gerar resposta JSON`)
   }
 
   public parseJSONResult(content: string): any {
     const parsers = [
       this.simpleParse,
       this.codeBlockParse,
-      this.braceSliceParse
+      this.braceSliceParse,
+      this.truncatedArrayRepairParse
     ]
 
     for (const parser of parsers) {
@@ -97,7 +126,12 @@ export abstract class BaseAIProvider {
       if (result !== null) return result
     }
 
-    throw new Error(`Não foi possível interpretar a resposta JSON do modelo (${this.model}): ${content.slice(0, 500)}`)
+    const truncationHint = this.truncated
+      ? ` A resposta foi cortada por atingir o limite de maxTokens (${this.maxTokens}) antes de terminar o JSON — aumente maxTokens.`
+      : ''
+    throw new Error(
+      `Não foi possível interpretar a resposta JSON do modelo (${this.model}):${truncationHint} ${content.slice(0, 500)}`
+    )
   }
 
   private simpleParse(content: string) {
@@ -126,6 +160,36 @@ export abstract class BaseAIProvider {
       const end = Math.max(content.lastIndexOf('}'), content.lastIndexOf(']'))
       if (start === -1 || end === -1 || end < start) return null
       return JSON.parse(content.slice(start, end + 1))
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Last-resort recovery for a response cut off mid-array by hitting `maxTokens`
+   * (see the `finishReason`/`stop_reason`/`finish_reason` checks in each provider):
+   * drops whatever incomplete trailing object was still being written and closes
+   * the array off after the last one that DID complete, so at least the items
+   * generated before the cut aren't thrown away entirely.
+   */
+  private truncatedArrayRepairParse(content: string) {
+    try {
+      const cleaned = content
+        .replace(/^```(?:json)?\s*\n?/, '')
+        .replace(/\n?```\s*$/, '')
+        .trim()
+
+      const arrayStart = cleaned.indexOf('[')
+      if (arrayStart === -1) return null
+
+      const lastObjectEnd = cleaned.lastIndexOf('}')
+      if (lastObjectEnd === -1 || lastObjectEnd <= arrayStart) return null
+
+      const repaired = JSON.parse(`${cleaned.slice(arrayStart, lastObjectEnd + 1)}]`)
+      console.warn(
+        `⚠️ ${this.constructor.name} (${this.model}): resposta truncada (limite de maxTokens=${this.maxTokens}) — recuperados ${Array.isArray(repaired) ? repaired.length : 0} item(ns) gerado(s) antes do corte.`
+      )
+      return repaired
     } catch {
       return null
     }

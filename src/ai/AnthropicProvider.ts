@@ -40,6 +40,11 @@ export class AnthropicProvider extends BaseAIProvider {
     if (!Array.isArray(content) || !content.length) {
       throw new Error('Resposta vazia da Anthropic')
     }
+
+    // Don't throw on truncation — the partial text still reaches runJSON, which may
+    // salvage the items that did complete before the cut (see BaseAIProvider).
+    if (this.response?.stop_reason === 'max_tokens') this.truncated = true
+
     return content.map((block: any) => block.text || '').join('\n').trim()
   }
 }

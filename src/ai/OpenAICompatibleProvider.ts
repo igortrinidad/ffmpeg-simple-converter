@@ -33,10 +33,16 @@ export abstract class OpenAICompatibleProvider extends BaseAIProvider {
   }
 
   protected extractTextFromResponse(): string {
-    const text = this.response?.choices?.[0]?.message?.content
+    const choice = this.response?.choices?.[0]
+    const text = choice?.message?.content
     if (!text) {
       throw new Error(`Resposta vazia da ${this.constructor.name}`)
     }
+
+    // Don't throw on truncation — the partial text still reaches runJSON, which may
+    // salvage the items that did complete before the cut (see BaseAIProvider).
+    if (choice?.finish_reason === 'length') this.truncated = true
+
     return text.trim()
   }
 }

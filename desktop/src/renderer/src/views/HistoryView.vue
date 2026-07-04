@@ -3,6 +3,7 @@ import { onMounted, type DeepReadonly } from 'vue'
 import type { HistoryEntry, RetryRequest } from '@shared/types'
 import { useHistory } from '../composables/useHistory'
 import { useRetry } from '../composables/useRetry'
+import { useClipboard } from '../composables/useClipboard'
 
 const emit = defineEmits<{
   retry: []
@@ -10,6 +11,7 @@ const emit = defineEmits<{
 
 const { state, load, remove, clear } = useHistory()
 const retry = useRetry()
+const { copiedKey, copy } = useClipboard()
 
 onMounted(() => {
   load()
@@ -89,7 +91,12 @@ function retryEntry(entry: DeepReadonly<HistoryEntry>): void {
           </template>
         </dl>
 
-        <p v-if="entry.error" class="entry-error">{{ entry.error }}</p>
+        <div v-if="entry.error" class="entry-error-row">
+          <p class="entry-error">{{ entry.error }}</p>
+          <button class="btn btn-ghost btn-copy" type="button" title="Copiar erro" @click="copy(entry.id, entry.error)">
+            {{ copiedKey === entry.id ? '✓ Copiado' : '📋 Copiar' }}
+          </button>
+        </div>
 
         <ul v-if="entry.outputFiles.length" class="output-list">
           <li v-for="file in entry.outputFiles" :key="file" class="output-item">
@@ -173,10 +180,27 @@ function retryEntry(entry: DeepReadonly<HistoryEntry>): void {
   white-space: nowrap;
 }
 
+.entry-error-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
 .entry-error {
   color: var(--danger);
   font-size: 12px;
-  margin: 8px 0 0;
+  margin: 0;
+  flex: 1;
+  /* Errors need to stay selectable/copyable for debugging, unlike the rest of the app's UI chrome. */
+  user-select: text;
+}
+
+.btn-copy {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
 }
 
 .entry-config {

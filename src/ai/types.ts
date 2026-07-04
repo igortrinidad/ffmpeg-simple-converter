@@ -13,4 +13,11 @@ export interface AIProviderOptions {
   timeout?: number
   /** Extra attempts after a retryable failure (network error, timeout, 429, 5xx). Defaults to 2. */
   maxRetries?: number
+  /**
+   * Gemini-only: caps internal "thinking" tokens, which otherwise eat into `maxTokens`
+   * silently and can truncate the actual answer on 2.5 models. Pass 0 to disable
+   * thinking entirely (recommended for plain extraction/JSON tasks). Ignored by
+   * other providers. Leave unset to keep the provider's own default behavior.
+   */
+  thinkingBudget?: number
 }

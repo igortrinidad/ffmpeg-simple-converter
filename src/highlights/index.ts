@@ -60,8 +60,15 @@ async function runExtraction(
     apiKey: options.apiKey,
     model: options.model,
     temperature: options.temperature ?? 0.2,
-    maxTokens: options.maxTokens ?? 4096,
-    maxRetries: options.maxRetries
+    // Each highlight asks for 3 detailed thumbnail prompts, so the full JSON answer
+    // easily runs long — well past a typical 4096-token default, especially once
+    // more than a couple of highlights are picked.
+    maxTokens: options.maxTokens ?? 24576,
+    maxRetries: options.maxRetries,
+    // This is a plain extraction/JSON task with no need for visible reasoning, and
+    // Gemini 2.5's "thinking" would otherwise silently eat into maxTokens and can
+    // truncate the JSON before it's done.
+    thinkingBudget: 0
   })
 
   const timelineText = buildTimelineText(segments)

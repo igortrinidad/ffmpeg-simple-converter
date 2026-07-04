@@ -10,6 +10,7 @@ import type {
   RetryRequest
 } from '@shared/types'
 import { useSettings } from '../../composables/useSettings'
+import { useClipboard } from '../../composables/useClipboard'
 
 const props = defineProps<{
   filePaths: string[]
@@ -24,6 +25,7 @@ const emit = defineEmits<{
 const CUSTOM_MODEL = '__custom__'
 
 const { state: settings } = useSettings()
+const { copiedKey, copy } = useClipboard()
 
 const availableOperations = computed(() => operationsForType(props.fileKind))
 
@@ -329,7 +331,17 @@ async function revealFile(path: string): Promise<void> {
           <ul class="step-checklist">
             <li v-for="step in event?.steps ?? []" :key="step.name">
               <span>{{ stepIcon(step.status) }}</span> {{ step.name }}
-              <span v-if="step.error" class="step-error">— {{ step.error }}</span>
+              <template v-if="step.error">
+                <span class="step-error">— {{ step.error }}</span>
+                <button
+                  class="btn btn-ghost btn-copy"
+                  type="button"
+                  title="Copiar erro"
+                  @click="copy(`${filePaths[index]}:${step.name}`, step.error)"
+                >
+                  {{ copiedKey === `${filePaths[index]}:${step.name}` ? '✓ Copiado' : '📋 Copiar' }}
+                </button>
+              </template>
             </li>
           </ul>
         </div>
@@ -518,6 +530,14 @@ async function revealFile(path: string): Promise<void> {
 
 .step-error {
   color: var(--danger);
+  /* Errors need to stay selectable/copyable for debugging, unlike the rest of the app's UI chrome. */
+  user-select: text;
+}
+
+.btn-copy {
+  font-size: 11px;
+  padding: 1px 6px;
+  margin-left: 4px;
 }
 
 .title-success {
