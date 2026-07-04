@@ -4,6 +4,7 @@ import type {
   AIProviderOption,
   JobRequest,
   JobEvent,
+  JobLogLine,
   HistoryEntry,
   FfmpegStatus
 } from '../shared/types'
@@ -35,6 +36,11 @@ const api = {
       const listener = (_: unknown, event: JobEvent) => callback(event)
       ipcRenderer.on('jobs:event', listener)
       return () => ipcRenderer.removeListener('jobs:event', listener)
+    },
+    onLog: (callback: (line: JobLogLine) => void): (() => void) => {
+      const listener = (_: unknown, line: JobLogLine) => callback(line)
+      ipcRenderer.on('jobs:log', listener)
+      return () => ipcRenderer.removeListener('jobs:log', listener)
     }
   },
 

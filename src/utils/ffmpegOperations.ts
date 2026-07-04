@@ -81,31 +81,42 @@ export function runFfmpegCommand(args: string[]): Promise<string> {
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
-    let stdout = ''
-    let stderr = ''
+    // FFmpeg writes a progress update to stderr multiple times per second for the
+    // whole run. Only the tail is kept (for the error message on failure) — a long
+    // conversion (e.g. a large/long input file) can otherwise accumulate megabytes
+    // of text here, and previously the code re-split that ENTIRE growing string on
+    // every single chunk just to find the latest line, which is O(n^2) in the
+    // conversion's duration and could exhaust memory/CPU on long-running jobs.
+    const STDERR_TAIL_LIMIT = 8000
+    let stderrTail = ''
+    let carryOverLine = ''
 
-    ffmpeg.stdout.on('data', (data) => {
-      stdout += data.toString()
-    })
+    // Nothing we need from stdout, but the pipe still needs to be drained —
+    // leaving it unconsumed can apply backpressure and stall ffmpeg once the
+    // OS pipe buffer fills up.
+    ffmpeg.stdout.on('data', () => {})
 
     ffmpeg.stderr.on('data', (data) => {
-      stderr += data.toString()
-      // FFmpeg sends progress to stderr
-      const lines = stderr.split('\n')
-      const lastLine = lines[lines.length - 2] || ''
-      
-      // Display progress if there is time information
-      if (lastLine.includes('time=')) {
-        process.stdout.write(`\r${lastLine.trim()}`)
+      const chunk = data.toString()
+      stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_LIMIT)
+
+      // Only the new chunk (plus whatever partial line carried over from the
+      // previous one) needs scanning for the latest progress line.
+      const lines = (carryOverLine + chunk).split(/\r|\n/)
+      carryOverLine = lines[lines.length - 1]
+
+      const lastProgressLine = [...lines].reverse().find((line) => line.includes('time='))
+      if (lastProgressLine) {
+        process.stdout.write(`\r${lastProgressLine.trim()}`)
       }
     })
 
     ffmpeg.on('close', (code) => {
       process.stdout.write('\r')
       if (code === 0) {
-        resolve(stdout)
+        resolve('')
       } else {
-        reject(new Error(`FFmpeg failed with code ${code}\n${stderr}`))
+        reject(new Error(`FFmpeg failed with code ${code}\n${stderrTail}`))
       }
     })
 
@@ -282,6 +293,14 @@ async function convertVideoInternal(
   } else if (videoCodec === 'h264_vaapi') {
     args.push('-qp', String(crf))
   }
+
+  // Force standard 8-bit 4:2:0 chroma regardless of the source's color depth.
+  // Drone/HDR sources (e.g. DJI footage) are often 10-bit (yuv420p10le, HEVC
+  // "Main 10"); without this, ffmpeg carries that depth into the H.264 output
+  // as a "High 10" profile, which most software (Windows Media Player/Movies &
+  // TV, many TVs and phones) can't decode — even though the file itself is a
+  // perfectly valid H.264 stream (e.g. VLC or ffplay can still play it fine).
+  args.push('-pix_fmt', 'yuv420p')
 
   // Threads
   if (threads) {
@@ -475,6 +494,10 @@ export async function cutVideoSegment(
     '-c:v', 'libx264',
     '-preset', 'fast',
     '-crf', '20',
+    // Force standard 8-bit 4:2:0 chroma — a 10-bit source (common in drone/HDR
+    // footage) would otherwise produce a "High 10" H.264 profile that most
+    // players (Windows Media Player/Movies & TV, many TVs/phones) can't open.
+    '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
     '-b:a', '128k',
     '-movflags', '+faststart',

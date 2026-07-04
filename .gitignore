@@ -47,6 +47,7 @@ convertions/
 *.webm
 *.vob
 *.srt
+*.jpg
 
 # Desktop app (Electron) build output
 desktop/out/

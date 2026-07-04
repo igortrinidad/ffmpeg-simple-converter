@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { getOperation, operationsForType } from '@shared/operations'
 import type {
   AIProviderName,
   ConversionPreset,
   FileKind,
   JobEvent,
+  JobLogLine,
   OperationId,
   RetryRequest
 } from '@shared/types'
@@ -139,9 +140,15 @@ function goBack(): void {
 // --- Run & progress -------------------------------------------------------
 
 const progressByFile = reactive(new Map<string, JobEvent>())
+const logsByFile = reactive(new Map<string, JobLogLine[]>())
 const running = ref(false)
 const overallFailed = ref(false)
 let unsubscribe: (() => void) | null = null
+let unsubscribeLogs: (() => void) | null = null
+
+// Caps how many lines are kept per file so a long-running conversion doesn't
+// grow the log panel (and the reactive array driving it) without bound.
+const MAX_LOG_LINES_PER_FILE = 300
 
 const progressList = computed(() =>
   props.filePaths.map((filePath) => progressByFile.get(filePath))
@@ -151,21 +158,47 @@ const allOutputFiles = computed(() =>
   props.filePaths.flatMap((filePath) => progressByFile.get(filePath)?.outputFiles ?? [])
 )
 
+const logContainers: (HTMLElement | null)[] = []
+function setLogContainer(index: number, el: Element | null): void {
+  logContainers[index] = el as HTMLElement | null
+}
+
+const totalLogLines = computed(() =>
+  props.filePaths.reduce((sum, filePath) => sum + (logsByFile.get(filePath)?.length ?? 0), 0)
+)
+
+// Keeps each file's log panel scrolled to the newest line as it streams in,
+// same as watching a terminal.
+watch(totalLogLines, async () => {
+  await nextTick()
+  for (const el of logContainers) {
+    if (el) el.scrollTop = el.scrollHeight
+  }
+})
+
 onMounted(() => {
   unsubscribe = window.api.jobs.onEvent((event) => {
     progressByFile.set(event.filePath, event)
     if (event.status === 'failed') overallFailed.value = true
   })
+  unsubscribeLogs = window.api.jobs.onLog((line) => {
+    const lines = logsByFile.get(line.filePath) ?? []
+    lines.push(line)
+    if (lines.length > MAX_LOG_LINES_PER_FILE) lines.splice(0, lines.length - MAX_LOG_LINES_PER_FILE)
+    logsByFile.set(line.filePath, lines)
+  })
 })
 
 onUnmounted(() => {
   unsubscribe?.()
+  unsubscribeLogs?.()
 })
 
 async function startRun(): Promise<void> {
   if (!operationId.value) return
   running.value = true
   overallFailed.value = false
+  logsByFile.clear()
 
   const modelValue =
     highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice
@@ -344,6 +377,21 @@ async function revealFile(path: string): Promise<void> {
               </template>
             </li>
           </ul>
+
+          <div
+            v-if="logsByFile.get(filePaths[index])?.length"
+            class="file-log"
+            :ref="(el) => setLogContainer(index, el as Element | null)"
+          >
+            <div
+              v-for="(line, li) in logsByFile.get(filePaths[index])"
+              :key="li"
+              class="log-line"
+              :class="`log-${line.level}`"
+            >
+              {{ line.text }}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -538,6 +586,39 @@ async function revealFile(path: string): Promise<void> {
   font-size: 11px;
   padding: 1px 6px;
   margin-left: 4px;
+}
+
+.file-log {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  /* This is effectively a mirrored terminal — needs to stay selectable/copyable for debugging. */
+  user-select: text;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-muted);
+}
+
+.log-line.log-warn {
+  color: var(--warning);
+}
+
+.log-line.log-error {
+  color: var(--danger);
+}
+
+.log-line.log-progress {
+  opacity: 0.75;
+  font-style: italic;
 }
 
 .title-success {

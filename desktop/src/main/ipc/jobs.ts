@@ -6,8 +6,10 @@ export function registerJobsIpc(): void {
   ipcMain.handle('jobs:run', async (event, request: JobRequest): Promise<void> => {
     const window = BrowserWindow.fromWebContents(event.sender)
 
-    await runJob(request, (jobEvent) => {
-      window?.webContents.send('jobs:event', jobEvent)
-    })
+    await runJob(
+      request,
+      (jobEvent) => window?.webContents.send('jobs:event', jobEvent),
+      (logLine) => window?.webContents.send('jobs:log', logLine)
+    )
   })
 }

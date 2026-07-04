@@ -14,9 +14,11 @@ import {
 import type { TranscriptSegment, HighlightSegment, HighlightAIOptions } from 'mediacript'
 import { getOperation } from '../../shared/operations'
 import { addHistoryEntry } from './historyStore'
-import type { JobEvent, JobRequest, JobStepState } from '../../shared/types'
+import { captureConsole } from './consoleCapture'
+import type { JobEvent, JobLogLine, JobRequest, JobStepState } from '../../shared/types'
 
 type EmitFn = (event: JobEvent) => void
+type LogFn = (line: JobLogLine) => void
 type StoredConfig = ReturnType<typeof getStoredConfig>
 
 /**
@@ -26,12 +28,12 @@ type StoredConfig = ReturnType<typeof getStoredConfig>
  * time (instead of the convenience composite functions) for finer-grained
  * progress reporting, and records a history entry per file.
  */
-export async function runJob(request: JobRequest, emit: EmitFn): Promise<void> {
+export async function runJob(request: JobRequest, emit: EmitFn, onLog: LogFn): Promise<void> {
   const operation = getOperation(request.operation)
   const config = getStoredConfig()
 
   for (let fileIndex = 0; fileIndex < request.filePaths.length; fileIndex++) {
-    await runJobForFile(request, operation, config, fileIndex, emit)
+    await runJobForFile(request, operation, config, fileIndex, emit, onLog)
   }
 }
 
@@ -40,7 +42,8 @@ async function runJobForFile(
   operation: ReturnType<typeof getOperation>,
   config: StoredConfig,
   fileIndex: number,
-  emit: EmitFn
+  emit: EmitFn,
+  onLog: LogFn
 ): Promise<void> {
   const filePath = request.filePaths[fileIndex]
   const jobId = randomUUID()
@@ -89,6 +92,13 @@ async function runJobForFile(
   // so they get grouped into a folder named after the input file.
   const generatesHighlightClips = operation.steps.includes('Cortar clipes')
   const outputDir = generatesHighlightClips ? createOutputFolderForFile(filePath) : undefined
+
+  // mediacript logs what it's doing (ffmpeg progress, AI provider retries/
+  // fallbacks, etc.) via plain console calls with no structured event of their
+  // own — mirror them to the renderer so the user can see what's happening.
+  const stopCapture = captureConsole((line) => {
+    onLog({ jobId, filePath, ...line, timestamp: new Date().toISOString() })
+  })
 
   try {
     if (ok && operation.steps.includes('Converter vídeo')) {
@@ -186,6 +196,8 @@ async function runJobForFile(
   } catch (error: any) {
     ok = false
     emitProgress('failed', error?.message || String(error))
+  } finally {
+    stopCapture()
   }
 
   const finishedAt = new Date().toISOString()

@@ -71,6 +71,17 @@ export interface JobEvent {
   error?: string
 }
 
+export type JobLogLevel = 'log' | 'warn' | 'error' | 'progress'
+
+/** A line of console output from the underlying library, mirrored live so the user can see what's actually happening during a job (ffmpeg progress, AI provider retries/fallbacks, etc.) */
+export interface JobLogLine {
+  jobId: string
+  filePath: string
+  level: JobLogLevel
+  text: string
+  timestamp: string
+}
+
 export interface HistoryEntry {
   id: string
   operation: OperationId
