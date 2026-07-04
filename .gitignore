@@ -47,3 +47,7 @@ convertions/
 *.webm
 *.vob
 *.srt
+
+# Desktop app (Electron) build output
+desktop/out/
+desktop/release/

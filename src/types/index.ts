@@ -4,6 +4,8 @@ export interface Config {
   anthropicApiKey?: string
   geminiApiKey?: string
   openrouterApiKey?: string
+  /** Optional default output directory for generated files, used by GUI consumers (e.g. the desktop app) */
+  defaultOutputDir?: string
 }
 
 export interface TranscriptSegment {

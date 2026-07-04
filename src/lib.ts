@@ -4,8 +4,8 @@
  * Use this module to integrate MediaScript functionality into your Node.js applications.
  */
 
-import { verifyFfmpeg } from './utils/ffmpegCheck.js'
-import { ensureConfig, loadConfig, hasApiKey } from './config/index.js'
+import { verifyFfmpeg, checkFfmpegInstalled } from './utils/ffmpegCheck.js'
+import { ensureConfig, loadConfig, saveConfig, hasApiKey, getConfigDir } from './config/index.js'
 import { listMediaFiles, detectFileType, type FileType } from './utils/fileHelpers.js'
 import {
   convertVideo,
@@ -81,12 +81,24 @@ export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
 export { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, createAIProvider }
 export type { AIProviderName, TranscriptSegment, HighlightSegment }
 
+// Re-export the SRT writer for consumers that orchestrate their own transcribe+save
+// steps (e.g. a GUI wanting fine-grained per-step progress instead of generateSubtitles)
+export { saveSrtFile }
+
 /**
  * Initialize MediaScript and verify dependencies
  * @throws Error if ffmpeg is not installed
  */
 export async function initialize(): Promise<void> {
   await verifyFfmpeg()
+}
+
+/**
+ * Non-interactive ffmpeg check — returns installation status/version instead
+ * of printing to the console and throwing. Intended for GUI consumers.
+ */
+export function getFfmpegStatus(): { installed: boolean; version?: string; error?: string } {
+  return checkFfmpegInstalled()
 }
 
 /**
@@ -105,6 +117,36 @@ export async function getConfig(): Promise<Config> {
 export function isConfigured(): boolean {
   const config = loadConfig()
   return hasApiKey(config)
+}
+
+/**
+ * Reads the stored configuration without any interactive prompting — unlike
+ * `getConfig()`, which may prompt the user via inquirer if no key is set yet.
+ * Intended for non-interactive consumers such as GUI applications.
+ */
+export function getStoredConfig(): Config {
+  return loadConfig()
+}
+
+/**
+ * Persists configuration values (e.g. API keys), merging with whatever is
+ * already stored. Intended for non-interactive consumers such as GUI
+ * applications that manage their own settings screen.
+ */
+export function saveStoredConfig(config: Partial<Config>): Config {
+  const merged = { ...loadConfig(), ...config }
+  saveConfig(merged)
+  return merged
+}
+
+/**
+ * Directory where mediacript's config (and anything sharing storage with it,
+ * like a GUI app's run history) is kept:
+ * Linux/Mac: ~/.config/ffmpeg-simple-converter
+ * Windows: %APPDATA%/ffmpeg-simple-converter
+ */
+export function getConfigDirectory(): string {
+  return getConfigDir()
 }
 
 /**
@@ -229,7 +271,7 @@ export async function saveTranscriptionToFile(
   transcriptionText: string,
   audioFilePath: string
 ): Promise<string> {
-  return saveTranscription(transcriptionText, audioFilePath)
+  return saveTranscription(audioFilePath, transcriptionText)
 }
 
 /**

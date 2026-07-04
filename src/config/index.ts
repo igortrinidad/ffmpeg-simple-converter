@@ -42,8 +42,10 @@ function hasAnyConfiguredKey(config: Config): boolean {
  * Returns the configuration directory based on the operating system
  * Linux/Mac: ~/.config/ffmpeg-simple-converter
  * Windows: %APPDATA%/ffmpeg-simple-converter
+ * Exported so other consumers (e.g. the desktop app) can place their own
+ * files (like a run history) next to config.json, in the same shared directory.
  */
-function getConfigDir(): string {
+export function getConfigDir(): string {
   const homeDir = os.homedir()
   
   if (process.platform === 'win32') {

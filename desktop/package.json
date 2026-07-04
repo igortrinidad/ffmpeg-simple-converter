@@ -1,0 +1,59 @@
+{
+  "name": "mediacript-desktop",
+  "version": "1.0.0",
+  "description": "Mediacript Desktop — interface gráfica para converter vídeos/áudios, transcrever, gerar legendas e cortes com IA",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "author": "Igor Trindade",
+  "scripts": {
+    "prepare:lib": "cd .. && npm run build",
+    "dev": "npm run prepare:lib && electron-vite dev",
+    "build": "npm run prepare:lib && electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "prepare:package": "node scripts/prepare-mediacript-for-packaging.mjs",
+    "package:linux": "npm run prepare:package && electron-vite build && electron-builder --linux",
+    "package:mac": "npm run prepare:package && electron-vite build && electron-builder --mac",
+    "package:win": "npm run prepare:package && electron-vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "mediacript": "file:..",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vue-tsc": "^2.1.10"
+  },
+  "build": {
+    "appId": "com.mediacript.desktop",
+    "productName": "Mediacript",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "linux": {
+      "target": ["AppImage"],
+      "category": "AudioVideo"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.video"
+    },
+    "win": {
+      "target": ["nsis"]
+    }
+  }
+}
