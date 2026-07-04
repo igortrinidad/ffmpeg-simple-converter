@@ -1,0 +1,13 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mediacript-bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8FD3FE"/>
+      <stop offset="1" stop-color="#3B96E0"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#mediacript-bg)"/>
+  <path d="M44 86 L44 170 L118 128 Z" fill="#FFFFFF"/>
+  <rect x="128" y="87" width="64" height="18" rx="9" fill="#FFFFFF"/>
+  <rect x="128" y="119" width="84" height="18" rx="9" fill="#FFFFFF"/>
+  <rect x="128" y="151" width="48" height="18" rx="9" fill="#FFFFFF"/>
+</svg>
