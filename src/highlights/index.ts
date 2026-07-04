@@ -30,7 +30,14 @@ function buildSystemPrompt(): string {
     '- Ordene os resultados cronologicamente por "start".',
     '- "title" deve ser um título curto e chamativo para o corte.',
     '- "reason" deve explicar em 1 frase por que esse trecho foi escolhido.',
-    '- "thumbnailPrompts" deve conter exatamente 3 ideias de prompt (em inglês, para ferramentas de geração de imagem como Midjourney/DALL-E) descrevendo uma thumbnail chamativa para esse corte, com base no conteúdo do trecho.',
+    '- "thumbnailPrompts" deve conter exatamente 3 ideias de prompt (em inglês, prontos para colar em ferramentas de geração de imagem como Midjourney, DALL-E ou similares), para uma thumbnail chamativa e de alta conversão para esse corte. Cada um dos 3 prompts é uma única string autocontida e deve:',
+    '  - Descrever a cena com riqueza de detalhes visuais (assunto, expressão/emoção, enquadramento, cenário, iluminação, paleta de cores), baseando-se no conteúdo real do trecho — nunca genérico.',
+    '  - Pensar a composição como thumbnail: close-up expressivo no rosto/reação quando fizer sentido, alto contraste, cores vibrantes, e espaço negativo reservado para o texto.',
+    '  - Incluir termos de qualidade/estilo que melhoram o resultado da IA de imagem (ex.: "hyper-detailed", "dramatic lighting", "vibrant high-contrast colors", "professional photography", "8k", "sharp focus").',
+    '  - Indicar o texto curto (2 a 5 palavras, baseado no "title" do corte) que deve aparecer sobreposto na imagem, onde posicioná-lo (ex.: canto superior, faixa inferior) e uma tipografia bold/impactante com cor que contraste com o fundo.',
+    '  - Especificar a proporção de imagem (aspect ratio) mais adequada ao uso (ex.: "16:9" para thumbnail de YouTube, "9:16" para Shorts/Reels/Stories, "1:1" para feed).',
+    '  - Ser autocontido, sem depender de contexto externo — a pessoa só copia e cola na ferramenta de imagem.',
+    '  - As 3 ideias devem explorar abordagens visuais diferentes entre si (ex.: uma em close-up na expressão facial, uma mais ampla mostrando o cenário/contexto, uma mais conceitual/simbólica ligada ao tema), para dar opções variadas.',
     '- Se nenhum trecho relevante for encontrado, responda com um array vazio: []'
   ].join('\n')
 }
