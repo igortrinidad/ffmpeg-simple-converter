@@ -21,7 +21,6 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
 import { fileURLToPath } from 'url'
 import * as tar from 'tar'
 
@@ -33,7 +32,11 @@ console.log('📦 Building mediacript and packing a clean copy for the installer
 
 execSync('npm run build', { cwd: rootDir, stdio: 'inherit' })
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediacript-pack-'))
+// Must live on the same drive as `mediacriptModulePath` (not os.tmpdir()) so the
+// renameSync below is a same-device move — on Windows CI runners the OS temp dir
+// (C:\Users\...\Temp) and the checkout (D:\a\...) are on different drives, and
+// cross-device renames fail with EXDEV.
+const tmpDir = fs.mkdtempSync(path.join(desktopDir, 'node_modules', '.mediacript-pack-'))
 const packOutput = execSync('npm pack --pack-destination "' + tmpDir + '"', { cwd: rootDir }).toString().trim()
 const tarballName = packOutput.split('\n').pop().trim()
 const tarballPath = path.join(tmpDir, tarballName)
