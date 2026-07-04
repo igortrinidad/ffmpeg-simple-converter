@@ -1,8 +1,8 @@
 name: Release Desktop build
 
-# Runs on every push to main: bumps the patch version in the root
-# package.json, tags the commit, builds the Windows installer from
-# desktop/, and publishes it as a GitHub Release.
+# Runs on every push to main: bumps the patch version in the root and
+# desktop/ package.json (kept in sync), tags the commit, builds the
+# Windows installer from desktop/, and publishes it as a GitHub Release.
 #
 # The bump commit's message includes "[skip ci]" so GitHub does not
 # trigger this workflow again for that push (avoids an infinite loop).
@@ -38,12 +38,13 @@ jobs:
         run: |
           NEW_VERSION=$(npm version patch --no-git-tag-version)
           NEW_VERSION=${NEW_VERSION#v}
+          npm --prefix desktop version "$NEW_VERSION" --no-git-tag-version --allow-same-version
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
         run: |
           VERSION=${{ steps.bump.outputs.new_version }}
-          git add package.json package-lock.json
+          git add package.json package-lock.json desktop/package.json desktop/package-lock.json
           git commit -m "chore: bump version to v${VERSION} [skip ci]"
           git tag "v${VERSION}"
           git push origin HEAD:main

@@ -23,6 +23,19 @@ Windows), então configurar por um dos dois já vale para o outro.
 - FFmpeg instalado no sistema (o app avisa na tela inicial se não encontrar)
 - O projeto raiz (`mediacript`) precisa estar compilado (`dist/`) — os scripts abaixo já cuidam disso.
 
+## Instalação (usuários finais — macOS)
+
+O `.dmg` publicado nas [Releases do GitHub](https://github.com/igortrinidad/mediacript/releases) não é
+assinado/notarizado, então o Gatekeeper do macOS coloca o app em quarentena ao baixar (aparece
+"Mediacript está danificado e não pode ser aberto"). Depois de baixar o `.dmg`, rode:
+
+```bash
+npx mediacript-unlock-mac
+```
+
+Isso monta o DMG, instala o app em `/Applications`, remove a quarentena e já abre o Mediacript. Veja
+mais detalhes em [`../unlock-mac`](../unlock-mac).
+
 ## Desenvolvimento
 
 ```bash
