@@ -1,0 +1,88 @@
+name: Release Windows build
+
+# Runs on every push to main: bumps the patch version in the root
+# package.json, tags the commit, builds the Windows installer from
+# desktop/, and publishes it as a GitHub Release.
+#
+# The bump commit's message includes "[skip ci]" so GitHub does not
+# trigger this workflow again for that push (avoids an infinite loop).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-tag:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          NEW_VERSION=$(npm version patch --no-git-tag-version)
+          NEW_VERSION=${NEW_VERSION#v}
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        run: |
+          VERSION=${{ steps.bump.outputs.new_version }}
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to v${VERSION} [skip ci]"
+          git tag "v${VERSION}"
+          git push origin HEAD:main
+          git push origin "v${VERSION}"
+
+  build-windows:
+    needs: bump-and-tag
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.bump-and-tag.outputs.new_version }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Windows installer
+        working-directory: desktop
+        run: npm run package:win
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump-and-tag.outputs.new_version }}
+          name: Mediacript v${{ needs.bump-and-tag.outputs.new_version }}
+          generate_release_notes: true
+          files: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
+            desktop/release/*.blockmap
