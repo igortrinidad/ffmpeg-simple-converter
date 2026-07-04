@@ -1,6 +1,6 @@
 {
   "name": "mediacript-desktop",
-  "version": "1.0.0",
+  "version": "1.2.8",
   "description": "Mediacript Desktop — interface gráfica para converter vídeos/áudios, transcrever, gerar legendas e cortes com IA",
   "private": true,
   "type": "module",
@@ -46,15 +46,21 @@
       "node_modules/**/*"
     ],
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "AudioVideo"
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.video"
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     }
   }
 }
