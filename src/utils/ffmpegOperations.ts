@@ -511,6 +511,27 @@ export async function cutVideoSegments(
 }
 
 /**
+ * Extracts a single frame from a video at the given timestamp and saves it as a JPEG.
+ */
+export async function extractVideoFrame(
+  inputPath: string,
+  timestampSeconds: number,
+  outputPath: string
+): Promise<string> {
+  const args = [
+    '-ss', timestampSeconds.toString(),
+    '-i', inputPath,
+    '-frames:v', '1',
+    '-q:v', '2',
+    '-y',
+    outputPath
+  ]
+
+  await runFfmpegCommand(args)
+  return outputPath
+}
+
+/**
  * Deletes a directory and all its contents
  */
 export function deleteDirectory(dirPath: string): void {

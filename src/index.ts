@@ -3,11 +3,12 @@
 import { verifyFfmpeg } from './utils/ffmpegCheck.js'
 import { ensureConfig, hasApiKey, getOrPromptAIProviderApiKey } from './config/index.js'
 import { promptApiKeysWizard } from './cli/configWizard.js'
-import { listMediaFiles, detectFileType } from './utils/fileHelpers.js'
-import { convertVideo, extractAudio, convertAudio, cutVideoSegments, type ConversionOptions, type ConversionPreset } from './utils/ffmpegOperations.js'
+import { listMediaFiles, detectFileType, createOutputFolderForFile } from './utils/fileHelpers.js'
+import { convertVideo, extractAudio, convertAudio, type ConversionOptions, type ConversionPreset } from './utils/ffmpegOperations.js'
 import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
 import { saveSrtFile } from './subtitles/srt.js'
-import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
+import { extractHighlightsFromTranscript } from './highlights/index.js'
+import { cutHighlightClipsWithAssets } from './lib.js'
 import { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
 import type { TranscriptSegment, HighlightSegment } from './types/index.js'
 import { runWizard, type WizardStep } from './cli/wizard.js'
@@ -110,7 +111,12 @@ async function executeWorkflow(
   highlightOptions?: HighlightWorkflowOptions
 ): Promise<void> {
   const state = createWorkflowState(inputFile, workflow.steps)
-  const outputDir = path.dirname(inputFile)
+  // Highlight runs generate many files (audio, subtitles, clips, thumbnails),
+  // so they get grouped into a folder named after the input file.
+  const generatesHighlightClips = workflow.steps.includes('Cut clips')
+  const outputDir = generatesHighlightClips
+    ? createOutputFolderForFile(inputFile)
+    : path.dirname(inputFile)
 
   console.log(`\n🚀 Starting workflow: ${workflow.name}`)
   console.log(`📁 Input file: ${path.basename(inputFile)}\n`)
@@ -225,23 +231,16 @@ async function executeWorkflow(
           }
 
           const marginSeconds = highlightOptions?.clipMarginSeconds ?? 0
-          let clipsToCut = selectedHighlights
-
           if (marginSeconds > 0) {
-            const maxDuration = transcriptSegments?.length
-              ? transcriptSegments[transcriptSegments.length - 1].end
-              : undefined
-            clipsToCut = applyHighlightMargin(selectedHighlights, marginSeconds, maxDuration)
             console.log(`\n✂️  Aplicando margem de ${marginSeconds}s antes/depois de cada corte...`)
           }
 
-          const clipPaths = await cutVideoSegments(
-            inputFile,
-            clipsToCut.map((highlight) => ({ start: highlight.start, end: highlight.end })),
-            outputDir
-          )
-          state.intermediateFiles.highlightClips = clipPaths
-          updateStepStatus(state, i, 'completed', { outputFile: clipPaths.join(', ') })
+          console.log(`\n🖼️  Gerando thumbnails de prévia para cada corte...`)
+          const clipResults = await cutHighlightClipsWithAssets(inputFile, selectedHighlights, outputDir, {
+            marginSeconds
+          })
+          state.intermediateFiles.highlightClips = clipResults.map((result) => result.clip.outputPath)
+          updateStepStatus(state, i, 'completed', { outputFile: state.intermediateFiles.highlightClips.join(', ') })
           break
         }
 
@@ -264,6 +263,9 @@ async function executeWorkflow(
   printWorkflowProgress(state)
 
   // Display generated files
+  if (generatesHighlightClips) {
+    console.log(`\n📁 Todos os arquivos deste vídeo foram salvos em: ${outputDir}`)
+  }
   console.log('\n📦 Generated files:')
   if (state.intermediateFiles.convertedVideo) {
     console.log(`  • Video: ${path.basename(state.intermediateFiles.convertedVideo)}`)
@@ -278,9 +280,9 @@ async function executeWorkflow(
     console.log(`  • Subtitles: ${path.basename(state.intermediateFiles.subtitlesFile)}`)
   }
   if (state.intermediateFiles.highlightClips?.length) {
-    console.log(`  • Highlight clips:`)
+    console.log(`  • Highlight clips (com thumbnails de prévia e ideias de prompt em cada pasta):`)
     for (const clipPath of state.intermediateFiles.highlightClips) {
-      console.log(`      - ${path.basename(clipPath)}`)
+      console.log(`      - ${path.relative(outputDir, clipPath)}`)
     }
   }
   console.log('')

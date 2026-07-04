@@ -7,7 +7,8 @@ import {
   saveTranscriptionToFile,
   saveSrtFile,
   extractVideoHighlights,
-  cutHighlightClips,
+  cutHighlightClipsWithAssets,
+  createOutputFolderForFile,
   getStoredConfig
 } from 'mediacript'
 import type { TranscriptSegment, HighlightSegment } from 'mediacript'
@@ -84,12 +85,18 @@ async function runJobForFile(
   let transcriptSegments: TranscriptSegment[] | undefined
   let highlights: HighlightSegment[] | undefined
 
+  // Highlight runs generate many files (audio, subtitles, clips, thumbnails),
+  // so they get grouped into a folder named after the input file.
+  const generatesHighlightClips = operation.steps.includes('Cortar clipes')
+  const outputDir = generatesHighlightClips ? createOutputFolderForFile(filePath) : undefined
+
   try {
     if (ok && operation.steps.includes('Converter vídeo')) {
       ok = await runStep('Converter vídeo', async () => {
         const result = await convertVideoFile(currentFile, {
           preset: request.conversionOptions?.preset ?? 'medium',
-          hwaccel: request.conversionOptions?.hwaccel ? 'auto' : 'none'
+          hwaccel: request.conversionOptions?.hwaccel ? 'auto' : 'none',
+          outputDir
         })
         currentFile = result.outputPath
         outputFiles.push(result.outputPath)
@@ -98,7 +105,7 @@ async function runJobForFile(
 
     if (ok && operation.steps.includes('Converter áudio')) {
       ok = await runStep('Converter áudio', async () => {
-        const result = await convertAudioFile(currentFile)
+        const result = await convertAudioFile(currentFile, outputDir)
         currentFile = result.outputPath
         outputFiles.push(result.outputPath)
       })
@@ -106,7 +113,7 @@ async function runJobForFile(
 
     if (ok && operation.steps.includes('Extrair áudio')) {
       ok = await runStep('Extrair áudio', async () => {
-        const result = await extractAudioFromVideo(currentFile)
+        const result = await extractAudioFromVideo(currentFile, outputDir)
         audioFile = result.outputPath
         currentFile = result.outputPath
         outputFiles.push(result.outputPath)
@@ -134,7 +141,7 @@ async function runJobForFile(
         }
         transcriptSegments = transcription.segments
         // Named after the original input file (nicer than the intermediate audio file)
-        const srtPath = saveSrtFile(transcription.segments, filePath)
+        const srtPath = saveSrtFile(transcription.segments, filePath, outputDir)
         outputFiles.push(srtPath)
       })
     }
@@ -162,13 +169,13 @@ async function runJobForFile(
 
     if (ok && operation.steps.includes('Cortar clipes')) {
       ok = await runStep('Cortar clipes', async () => {
-        const clips = await cutHighlightClips(
-          filePath,
-          highlights!,
-          undefined,
-          request.highlightOptions?.marginSeconds ?? 0
-        )
-        outputFiles.push(...clips.map((clip) => clip.outputPath))
+        const clips = await cutHighlightClipsWithAssets(filePath, highlights!, outputDir!, {
+          marginSeconds: request.highlightOptions?.marginSeconds ?? 0
+        })
+        for (const clip of clips) {
+          outputFiles.push(clip.clip.outputPath, ...clip.thumbnailFrames)
+          if (clip.thumbnailPromptsFile) outputFiles.push(clip.thumbnailPromptsFile)
+        }
       })
     }
   } catch (error: any) {

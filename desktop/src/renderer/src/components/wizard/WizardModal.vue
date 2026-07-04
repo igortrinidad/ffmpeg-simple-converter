@@ -392,6 +392,7 @@ async function revealFile(path: string): Promise<void> {
   text-align: left;
   border: 1px solid var(--border);
   background: var(--bg);
+  color: var(--text);
   border-radius: 10px;
   padding: 12px 14px;
 }

@@ -49,6 +49,35 @@ export function listMediaFiles(dir: string): Array<{ name: string; fullPath: str
 }
 
 /**
+ * Creates (if needed) and returns a folder named after `inputFile`'s basename,
+ * used to group every output generated for that file (audio, subtitles, clips,
+ * thumbnails, etc.) instead of scattering them next to the original file.
+ */
+export function createOutputFolderForFile(inputFile: string, baseOutputDir?: string): string {
+  const parentDir = baseOutputDir || path.dirname(inputFile)
+  const folderName = path.basename(inputFile, path.extname(inputFile))
+  const dir = path.join(parentDir, folderName)
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+/**
+ * Converts free text (e.g. an AI-generated clip title) into a filesystem-safe
+ * slug, used to name per-clip output folders.
+ */
+export function slugify(text: string): string {
+  const slug = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+
+  return slug || 'clip'
+}
+
+/**
  * Checks if a file exists
  */
 export function fileExists(filePath: string): boolean {

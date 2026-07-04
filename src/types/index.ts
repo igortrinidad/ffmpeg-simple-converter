@@ -19,6 +19,8 @@ export interface HighlightSegment {
   end: number
   title: string
   reason?: string
+  /** AI-suggested prompt ideas for generating a thumbnail image for this clip */
+  thumbnailPrompts?: string[]
 }
 
 export interface WorkflowStep {

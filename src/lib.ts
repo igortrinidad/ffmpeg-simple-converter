@@ -4,9 +4,11 @@
  * Use this module to integrate MediaScript functionality into your Node.js applications.
  */
 
+import fs from 'fs'
+import path from 'path'
 import { verifyFfmpeg, checkFfmpegInstalled } from './utils/ffmpegCheck.js'
 import { ensureConfig, loadConfig, saveConfig, hasApiKey, getConfigDir } from './config/index.js'
-import { listMediaFiles, detectFileType, type FileType } from './utils/fileHelpers.js'
+import { listMediaFiles, detectFileType, createOutputFolderForFile, slugify, type FileType } from './utils/fileHelpers.js'
 import {
   convertVideo,
   extractAudio,
@@ -14,6 +16,7 @@ import {
   getAudioDuration,
   splitAudioIntoChunks,
   cutVideoSegments,
+  cutVideoSegment,
   type ConversionOptions,
   type ConversionPreset,
   type HardwareAcceleration
@@ -21,6 +24,7 @@ import {
 import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
 import { saveSrtFile } from './subtitles/srt.js'
 import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
+import { generateThumbnailFrames, saveThumbnailPrompts, DEFAULT_THUMBNAIL_FRAME_COUNT } from './thumbnails/index.js'
 import { createAIProvider, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
 import type { Config, TranscriptSegment, HighlightSegment } from './types/index.js'
 
@@ -58,6 +62,17 @@ export interface ConversionResult {
   originalPath: string
 }
 
+export interface HighlightClipResult {
+  /** Folder holding this clip's video, thumbnail frames and prompt ideas */
+  clipDir: string
+  clip: ConversionResult
+  highlight: HighlightSegment
+  /** Preview frame image paths, spaced evenly across the clip */
+  thumbnailFrames: string[]
+  /** Path to the text file with AI-suggested thumbnail prompt ideas, or null if none were provided */
+  thumbnailPromptsFile: string | null
+}
+
 export interface SubtitlesResult {
   srtPath: string
   segments: TranscriptSegment[]
@@ -84,6 +99,11 @@ export type { AIProviderName, TranscriptSegment, HighlightSegment }
 // Re-export the SRT writer for consumers that orchestrate their own transcribe+save
 // steps (e.g. a GUI wanting fine-grained per-step progress instead of generateSubtitles)
 export { saveSrtFile }
+
+// Re-export for consumers (CLI, desktop app) that orchestrate their own steps
+// and need to resolve/create the same per-file output folder used internally
+export { createOutputFolderForFile }
+export { DEFAULT_THUMBNAIL_FRAME_COUNT }
 
 /**
  * Initialize MediaScript and verify dependencies
@@ -367,6 +387,69 @@ export async function cutHighlightClips(
 }
 
 /**
+ * Cuts one clip per highlight and, for each clip, also generates a set of
+ * preview thumbnail frames and (when the AI provided them) a text file with
+ * thumbnail prompt ideas. Every clip gets its own subfolder inside `rootDir`
+ * (e.g. `<rootDir>/clip-01-<title-slug>/`) to keep the many generated files organized.
+ * @param videoPath - Path to the original video file
+ * @param highlights - Highlight segments (e.g. from extractVideoHighlights)
+ * @param rootDir - Directory the per-clip subfolders are created in (e.g. from createOutputFolderForFile)
+ * @param options - Clip margin and thumbnail frame count
+ */
+export async function cutHighlightClipsWithAssets(
+  videoPath: string,
+  highlights: HighlightSegment[],
+  rootDir: string,
+  options?: { marginSeconds?: number; thumbnailFrameCount?: number }
+): Promise<HighlightClipResult[]> {
+  let clipsToCut = highlights
+
+  const marginSeconds = options?.marginSeconds ?? 0
+  if (marginSeconds > 0) {
+    let maxDuration: number | undefined
+    try {
+      maxDuration = await getAudioDuration(videoPath)
+    } catch (err) {
+      // Duration probe is best-effort; margin is still applied without an upper clamp
+    }
+    clipsToCut = applyHighlightMargin(highlights, marginSeconds, maxDuration)
+  }
+
+  const results: HighlightClipResult[] = []
+
+  for (let i = 0; i < clipsToCut.length; i++) {
+    const highlight = clipsToCut[i]
+    const clipName = `clip-${String(i + 1).padStart(2, '0')}-${slugify(highlight.title)}`
+    const clipDir = path.join(rootDir, clipName)
+    fs.mkdirSync(clipDir, { recursive: true })
+
+    const clipPath = await cutVideoSegment(videoPath, highlight.start, highlight.end, {
+      outputDir: clipDir,
+      outputName: clipName
+    })
+
+    const thumbnailFrames = await generateThumbnailFrames(
+      videoPath,
+      highlight,
+      clipDir,
+      options?.thumbnailFrameCount ?? DEFAULT_THUMBNAIL_FRAME_COUNT
+    )
+
+    const thumbnailPromptsFile = saveThumbnailPrompts(highlight.thumbnailPrompts ?? [], clipDir)
+
+    results.push({
+      clipDir,
+      clip: { outputPath: clipPath, originalPath: videoPath },
+      highlight,
+      thumbnailFrames,
+      thumbnailPromptsFile
+    })
+  }
+
+  return results
+}
+
+/**
  * Complete workflow: Extract audio + Transcribe with timeline + Ask an LLM for
  * the best highlights + Cut one clip per highlight.
  * @param videoPath - Path to the input video file
@@ -385,24 +468,32 @@ export async function extractHighlightClips(
   videoPath: string,
   prompt: string,
   aiOptions: HighlightAIOptions,
-  options?: MediaScriptOptions & { clipMarginSeconds?: number }
+  options?: MediaScriptOptions & { clipMarginSeconds?: number; thumbnailFrameCount?: number }
 ): Promise<{
+  outputDir: string
   extractedAudio: ConversionResult
   subtitles: SubtitlesResult
   highlights: HighlightSegment[]
-  clips: ConversionResult[]
+  clips: HighlightClipResult[]
 }> {
-  const extractedAudio = await extractAudioFromVideo(videoPath, options?.outputDir)
+  // Every output for this video (audio, subtitles, clips, thumbnails) is grouped
+  // into a single folder named after the video, since a highlights run generates many files.
+  const outputDir = createOutputFolderForFile(videoPath, options?.outputDir)
 
-  const subtitles = await generateSubtitles(extractedAudio.outputPath, options)
+  const extractedAudio = await extractAudioFromVideo(videoPath, outputDir)
+
+  const subtitles = await generateSubtitles(extractedAudio.outputPath, { ...options, outputDir })
   if (!subtitles) {
     throw new Error('Não foi possível transcrever o áudio para gerar os destaques')
   }
 
   const highlights = await extractVideoHighlights(subtitles.segments, prompt, aiOptions)
-  const clips = await cutHighlightClips(videoPath, highlights, options?.outputDir, options?.clipMarginSeconds ?? 0)
+  const clips = await cutHighlightClipsWithAssets(videoPath, highlights, outputDir, {
+    marginSeconds: options?.clipMarginSeconds ?? 0,
+    thumbnailFrameCount: options?.thumbnailFrameCount
+  })
 
-  return { extractedAudio, subtitles, highlights, clips }
+  return { outputDir, extractedAudio, subtitles, highlights, clips }
 }
 
 /**

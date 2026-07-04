@@ -22,7 +22,7 @@ function buildSystemPrompt(): string {
     'Você recebe uma timeline com trechos transcritos, cada linha no formato "[inicioS - fimS] texto", onde os tempos estão em segundos a partir do início do vídeo.',
     'Sua tarefa é escolher os melhores trechos para virarem cortes/clipes, de acordo com o pedido do usuário.',
     'Responda APENAS com um JSON array, sem markdown, sem comentários, no formato:',
-    '[{ "start": number, "end": number, "title": string, "reason": string }]',
+    '[{ "start": number, "end": number, "title": string, "reason": string, "thumbnailPrompts": string[] }]',
     'Regras:',
     '- "start" e "end" devem ser números em segundos, coerentes com os tempos fornecidos na timeline (não invente tempos fora do intervalo transcrito).',
     '- "end" deve ser maior que "start".',
@@ -30,6 +30,7 @@ function buildSystemPrompt(): string {
     '- Ordene os resultados cronologicamente por "start".',
     '- "title" deve ser um título curto e chamativo para o corte.',
     '- "reason" deve explicar em 1 frase por que esse trecho foi escolhido.',
+    '- "thumbnailPrompts" deve conter exatamente 3 ideias de prompt (em inglês, para ferramentas de geração de imagem como Midjourney/DALL-E) descrevendo uma thumbnail chamativa para esse corte, com base no conteúdo do trecho.',
     '- Se nenhum trecho relevante for encontrado, responda com um array vazio: []'
   ].join('\n')
 }
@@ -99,7 +100,10 @@ export async function extractHighlightsFromTranscript(
       start: Math.max(0, highlight.start),
       end: Math.min(totalDuration, highlight.end),
       title: String(highlight.title).trim(),
-      reason: highlight.reason ? String(highlight.reason).trim() : undefined
+      reason: highlight.reason ? String(highlight.reason).trim() : undefined,
+      thumbnailPrompts: Array.isArray(highlight.thumbnailPrompts)
+        ? highlight.thumbnailPrompts.map((p: any) => String(p).trim()).filter(Boolean)
+        : []
     }))
     .filter((highlight: HighlightSegment) => highlight.end > highlight.start)
     .sort((a: HighlightSegment, b: HighlightSegment) => a.start - b.start)
