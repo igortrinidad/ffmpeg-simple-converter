@@ -12,6 +12,7 @@ import { listMediaFiles, detectFileType, createOutputFolderForFile, slugify, typ
 import {
   convertVideo,
   extractAudio,
+  getExtractedAudioPath,
   convertAudio,
   getAudioDuration,
   splitAudioIntoChunks,
@@ -22,8 +23,9 @@ import {
   type HardwareAcceleration
 } from './utils/ffmpegOperations.js'
 import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
-import { saveSrtFile } from './subtitles/srt.js'
+import { saveSrtFile, getSrtOutputPath, loadSrtFile } from './subtitles/srt.js'
 import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
+import { continueHighlightChat, type HighlightChatMessage, type HighlightChatTurnResult } from './highlights/chat.js'
 import { generateThumbnailFrames, saveThumbnailPrompts, DEFAULT_THUMBNAIL_FRAME_COUNT } from './thumbnails/index.js'
 import { createAIProvider, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, type AIProviderName } from './ai/index.js'
 import type { Config, TranscriptSegment, HighlightSegment, HighlightFallbackModel } from './types/index.js'
@@ -93,6 +95,7 @@ export interface HighlightAIOptions {
 
 // Re-export conversion types for convenience
 export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
+export { getExtractedAudioPath }
 
 // Re-export AI provider types/constants for convenience
 export { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, createAIProvider }
@@ -100,7 +103,7 @@ export type { AIProviderName, TranscriptSegment, HighlightSegment }
 
 // Re-export the SRT writer for consumers that orchestrate their own transcribe+save
 // steps (e.g. a GUI wanting fine-grained per-step progress instead of generateSubtitles)
-export { saveSrtFile }
+export { saveSrtFile, getSrtOutputPath, loadSrtFile }
 
 // Re-export for consumers (CLI, desktop app) that orchestrate their own steps
 // and need to resolve/create the same per-file output folder used internally
@@ -349,6 +352,32 @@ export async function extractVideoHighlights(
   fallbackOptions: HighlightAIOptions[] = []
 ): Promise<HighlightSegment[]> {
   return extractHighlightsFromTranscript(segments, prompt, aiOptions, fallbackOptions)
+}
+
+/**
+ * Advances an ongoing highlight-selection conversation by one turn: given the
+ * transcript timeline, the conversation so far, the current highlight
+ * selection and the user's latest message, asks the AI for both a chat reply
+ * and the updated highlight list. Use this instead of `extractVideoHighlights`
+ * to let the user and the AI iteratively refine the selection together,
+ * rather than picking highlights from a single free-text prompt.
+ * @param segments - Transcript segments with timestamps (e.g. from generateSubtitles)
+ * @param history - Prior turns of the conversation, NOT including `userMessage`
+ * @param userMessage - The user's latest chat message
+ * @param currentHighlights - The highlight selection as it stands before this turn
+ * @param aiOptions - Which provider/model/API key to use
+ * @param fallbackOptions - Ordered list of provider/model/API key alternatives to try,
+ *   in order, if `aiOptions` fails even after its own retries
+ */
+export async function continueVideoHighlightChat(
+  segments: TranscriptSegment[],
+  history: HighlightChatMessage[],
+  userMessage: string,
+  currentHighlights: HighlightSegment[],
+  aiOptions: HighlightAIOptions,
+  fallbackOptions: HighlightAIOptions[] = []
+): Promise<HighlightChatTurnResult> {
+  return continueHighlightChat(segments, history, userMessage, currentHighlights, aiOptions, fallbackOptions)
 }
 
 /**
@@ -647,4 +676,4 @@ export async function convertAndTranscribe(
 }
 
 // Re-export types for consumers
-export type { Config, FileType, HighlightFallbackModel }
+export type { Config, FileType, HighlightFallbackModel, HighlightChatMessage, HighlightChatTurnResult }

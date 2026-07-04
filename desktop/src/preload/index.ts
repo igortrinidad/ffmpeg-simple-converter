@@ -6,7 +6,18 @@ import type {
   JobEvent,
   JobLogLine,
   HistoryEntry,
-  FfmpegStatus
+  FfmpegStatus,
+  HighlightChatStartRequest,
+  HighlightChatStartResult,
+  HighlightChatSendRequest,
+  HighlightChatSendResult,
+  HighlightChatCutRequest,
+  HighlightChatCutResult,
+  HighlightChatRemoveRequest,
+  HighlightChatRemoveResult,
+  HighlightChatUpdateRequest,
+  HighlightChatUpdateResult,
+  HighlightChatLogLine
 } from '../shared/types'
 
 const api = {
@@ -48,6 +59,24 @@ const api = {
     list: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:list'),
     clear: (): Promise<void> => ipcRenderer.invoke('history:clear'),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('history:remove', id)
+  },
+
+  highlightChat: {
+    start: (request: HighlightChatStartRequest): Promise<HighlightChatStartResult> =>
+      ipcRenderer.invoke('highlightChat:start', request),
+    sendMessage: (request: HighlightChatSendRequest): Promise<HighlightChatSendResult> =>
+      ipcRenderer.invoke('highlightChat:sendMessage', request),
+    processCuts: (request: HighlightChatCutRequest): Promise<HighlightChatCutResult> =>
+      ipcRenderer.invoke('highlightChat:processCuts', request),
+    removeHighlight: (request: HighlightChatRemoveRequest): Promise<HighlightChatRemoveResult> =>
+      ipcRenderer.invoke('highlightChat:removeHighlight', request),
+    updateHighlight: (request: HighlightChatUpdateRequest): Promise<HighlightChatUpdateResult> =>
+      ipcRenderer.invoke('highlightChat:updateHighlight', request),
+    onLog: (callback: (line: HighlightChatLogLine) => void): (() => void) => {
+      const listener = (_: unknown, line: HighlightChatLogLine) => callback(line)
+      ipcRenderer.on('highlightChat:log', listener)
+      return () => ipcRenderer.removeListener('highlightChat:log', listener)
+    }
   }
 }
 

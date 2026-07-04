@@ -2,7 +2,15 @@ import { describe, test, expect, afterEach } from '@jest/globals'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { formatSrtTimestamp, segmentsToSrt, saveSrtFile } from '../../src/subtitles/srt.js'
+import {
+  formatSrtTimestamp,
+  segmentsToSrt,
+  saveSrtFile,
+  parseSrtTimestamp,
+  srtToSegments,
+  loadSrtFile,
+  getSrtOutputPath
+} from '../../src/subtitles/srt.js'
 
 describe('formatSrtTimestamp', () => {
   test('formats zero seconds', () => {
@@ -41,6 +49,46 @@ describe('segmentsToSrt', () => {
   })
 })
 
+describe('parseSrtTimestamp', () => {
+  test('is the inverse of formatSrtTimestamp', () => {
+    expect(parseSrtTimestamp('00:00:00,000')).toBe(0)
+    expect(parseSrtTimestamp('00:00:05,250')).toBe(5.25)
+    expect(parseSrtTimestamp('01:02:05,500')).toBe(3725.5)
+  })
+
+  test('throws on a malformed timestamp', () => {
+    expect(() => parseSrtTimestamp('not a timestamp')).toThrow()
+  })
+})
+
+describe('srtToSegments', () => {
+  test('is the inverse of segmentsToSrt', () => {
+    const segments = [
+      { start: 0, end: 1.5, text: 'Olá mundo' },
+      { start: 1.5, end: 3, text: 'Segundo trecho' }
+    ]
+
+    expect(srtToSegments(segmentsToSrt(segments))).toEqual(segments)
+  })
+
+  test('joins multi-line cue text into one segment', () => {
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\nprimeira linha\nsegunda linha\n'
+    expect(srtToSegments(srt)).toEqual([{ start: 0, end: 2, text: 'primeira linha segunda linha' }])
+  })
+
+  test('ignores blocks without a valid timing line', () => {
+    expect(srtToSegments('not an srt file at all')).toEqual([])
+  })
+})
+
+describe('getSrtOutputPath', () => {
+  test('matches the path saveSrtFile actually writes to', () => {
+    const mediaPath = path.join('/tmp/whatever', 'video.mp4')
+    expect(getSrtOutputPath(mediaPath)).toBe(path.join('/tmp/whatever', 'video.srt'))
+    expect(getSrtOutputPath(mediaPath, '/custom/out')).toBe(path.join('/custom/out', 'video.srt'))
+  })
+})
+
 describe('saveSrtFile', () => {
   let testDir: string
 
@@ -71,5 +119,15 @@ describe('saveSrtFile', () => {
 
     expect(outputPath).toBe(path.join(outDir, 'video.srt'))
     expect(fs.existsSync(outputPath)).toBe(true)
+  })
+
+  test('loadSrtFile reads back what saveSrtFile wrote', () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediacript-srt-test-'))
+    const mediaPath = path.join(testDir, 'video.mp4')
+    const segments = [{ start: 0, end: 1.5, text: 'oi' }]
+
+    const outputPath = saveSrtFile(segments, mediaPath)
+
+    expect(loadSrtFile(outputPath)).toEqual(segments)
   })
 })

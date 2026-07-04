@@ -1,24 +1,30 @@
+import fs from 'fs'
 import { randomUUID } from 'crypto'
 import {
   convertVideoFile,
   extractAudioFromVideo,
+  getExtractedAudioPath,
   convertAudioFile,
   transcribeAudioFile,
   saveTranscriptionToFile,
   saveSrtFile,
+  getSrtOutputPath,
+  loadSrtFile,
   extractVideoHighlights,
   cutHighlightClipsWithAssets,
   createOutputFolderForFile,
   getStoredConfig
 } from 'mediacript'
-import type { TranscriptSegment, HighlightSegment, HighlightAIOptions } from 'mediacript'
+import type { TranscriptSegment, HighlightSegment } from 'mediacript'
 import { getOperation } from '../../shared/operations'
 import { addHistoryEntry } from './historyStore'
 import { captureConsole } from './consoleCapture'
+import { resolveHighlightApiKey, buildHighlightFallbackOptions } from './aiOptions'
 import type { JobEvent, JobLogLine, JobRequest, JobStepState } from '../../shared/types'
 
 type EmitFn = (event: JobEvent) => void
 type LogFn = (line: JobLogLine) => void
+type TranscriptReadyFn = (jobId: string, filePath: string, segments: TranscriptSegment[], audioFilePath: string) => void
 type StoredConfig = ReturnType<typeof getStoredConfig>
 
 /**
@@ -28,12 +34,17 @@ type StoredConfig = ReturnType<typeof getStoredConfig>
  * time (instead of the convenience composite functions) for finer-grained
  * progress reporting, and records a history entry per file.
  */
-export async function runJob(request: JobRequest, emit: EmitFn, onLog: LogFn): Promise<void> {
+export async function runJob(
+  request: JobRequest,
+  emit: EmitFn,
+  onLog: LogFn,
+  onTranscriptReady?: TranscriptReadyFn
+): Promise<void> {
   const operation = getOperation(request.operation)
   const config = getStoredConfig()
 
   for (let fileIndex = 0; fileIndex < request.filePaths.length; fileIndex++) {
-    await runJobForFile(request, operation, config, fileIndex, emit, onLog)
+    await runJobForFile(request, operation, config, fileIndex, emit, onLog, onTranscriptReady)
   }
 }
 
@@ -43,7 +54,8 @@ async function runJobForFile(
   config: StoredConfig,
   fileIndex: number,
   emit: EmitFn,
-  onLog: LogFn
+  onLog: LogFn,
+  onTranscriptReady?: TranscriptReadyFn
 ): Promise<void> {
   const filePath = request.filePaths[fileIndex]
   const jobId = randomUUID()
@@ -93,6 +105,23 @@ async function runJobForFile(
   const generatesHighlightClips = operation.steps.includes('Cortar clipes')
   const outputDir = generatesHighlightClips ? createOutputFolderForFile(filePath) : undefined
 
+  // If a previous run already produced the .srt for this exact file, reuse it
+  // instead of paying for transcription again — the timeline doesn't change
+  // unless the source file does.
+  const existingSrtPath = operation.steps.includes('Gerar legendas')
+    ? getSrtOutputPath(filePath, outputDir)
+    : undefined
+  const reuseExistingSrt = !!existingSrtPath && fs.existsSync(existingSrtPath)
+
+  // The highlight chat needs the extracted audio to persist on disk for
+  // in-panel playback, independent of whether the .srt was reused — so it
+  // still gets extracted (from a stable, reusable path) even when transcription
+  // itself is skipped, and reused across runs the same way the .srt is.
+  const needsPersistedAudio = !!operation.startsHighlightChat
+  const persistedAudioPath = needsPersistedAudio ? getExtractedAudioPath(filePath, outputDir) : undefined
+  const persistedAudioExists = !!persistedAudioPath && fs.existsSync(persistedAudioPath)
+  const canSkipAudioExtraction = needsPersistedAudio ? persistedAudioExists : reuseExistingSrt
+
   // mediacript logs what it's doing (ffmpeg progress, AI provider retries/
   // fallbacks, etc.) via plain console calls with no structured event of their
   // own — mirror them to the renderer so the user can see what's happening.
@@ -122,12 +151,24 @@ async function runJobForFile(
     }
 
     if (ok && operation.steps.includes('Extrair áudio')) {
-      ok = await runStep('Extrair áudio', async () => {
-        const result = await extractAudioFromVideo(currentFile, outputDir)
-        audioFile = result.outputPath
-        currentFile = result.outputPath
-        outputFiles.push(result.outputPath)
-      })
+      if (canSkipAudioExtraction) {
+        // Either the audio was only ever extracted to feed transcription and
+        // the .srt is already on disk, or (for the highlight chat) the
+        // persisted audio file itself is already there — nothing left to do.
+        steps.find((s) => s.name === 'Extrair áudio')!.status = 'skipped'
+        emitProgress('running')
+        if (persistedAudioPath) {
+          audioFile = persistedAudioPath
+          currentFile = persistedAudioPath
+        }
+      } else {
+        ok = await runStep('Extrair áudio', async () => {
+          const result = await extractAudioFromVideo(currentFile, outputDir)
+          audioFile = result.outputPath
+          currentFile = result.outputPath
+          outputFiles.push(result.outputPath)
+        })
+      }
     }
 
     if (ok && operation.steps.includes('Transcrever áudio')) {
@@ -144,6 +185,18 @@ async function runJobForFile(
 
     if (ok && operation.steps.includes('Gerar legendas')) {
       ok = await runStep('Gerar legendas', async () => {
+        if (reuseExistingSrt && existingSrtPath) {
+          const segments = loadSrtFile(existingSrtPath)
+          if (!segments.length) {
+            throw new Error(`O arquivo .srt existente está vazio ou não pôde ser lido: ${existingSrtPath}`)
+          }
+          console.log(`\n✓ Legendas já existiam, reaproveitando: ${existingSrtPath}`)
+          transcriptSegments = segments
+          outputFiles.push(existingSrtPath)
+          onTranscriptReady?.(jobId, filePath, segments, audioFile ?? currentFile)
+          return
+        }
+
         const fileToTranscribe = audioFile || currentFile
         const transcription = await transcribeAudioFile(fileToTranscribe, config)
         if (!transcription || !transcription.segments?.length) {
@@ -153,6 +206,7 @@ async function runJobForFile(
         // Named after the original input file (nicer than the intermediate audio file)
         const srtPath = saveSrtFile(transcription.segments, filePath, outputDir)
         outputFiles.push(srtPath)
+        onTranscriptReady?.(jobId, filePath, transcription.segments, audioFile ?? fileToTranscribe)
       })
     }
 
@@ -216,49 +270,4 @@ async function runJobForFile(
     conversionOptions: request.conversionOptions,
     highlightOptions: request.highlightOptions
   })
-}
-
-/**
- * Turns the user's configured fallback list (settings, provider+model only) into
- * ready-to-use AI options (resolving each one's API key). Entries whose provider
- * has no key configured, or that duplicate the primary provider+model already
- * being tried, are skipped rather than failing the whole run.
- */
-function buildHighlightFallbackOptions(
-  config: StoredConfig,
-  primary: { provider: string; model: string }
-): HighlightAIOptions[] {
-  const fallbacks = config.highlightFallbackModels ?? []
-  const options: HighlightAIOptions[] = []
-
-  for (const fallback of fallbacks) {
-    if (fallback.provider === primary.provider && fallback.model === primary.model) continue
-
-    try {
-      options.push({
-        provider: fallback.provider,
-        model: fallback.model,
-        apiKey: resolveHighlightApiKey(fallback.provider, config)
-      })
-    } catch {
-      // No API key configured for this fallback provider — skip it instead of failing the run.
-    }
-  }
-
-  return options
-}
-
-function resolveHighlightApiKey(provider: string, config: StoredConfig): string {
-  const key = ({
-    anthropic: config.anthropicApiKey,
-    gemini: config.geminiApiKey,
-    openrouter: config.openrouterApiKey,
-    openai: config.openaiApiKey,
-    groq: config.groqApiKey
-  } as Record<string, string | undefined>)[provider]
-
-  if (!key) {
-    throw new Error(`Nenhuma API key configurada para o provedor "${provider}"`)
-  }
-  return key
 }

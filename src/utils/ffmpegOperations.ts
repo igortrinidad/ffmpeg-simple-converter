@@ -322,6 +322,18 @@ async function convertVideoInternal(
 }
 
 /**
+ * Where `extractAudio` would write the FIRST audio extraction for a media
+ * file (before any `_1`, `_2`, ... de-duplication kicks in) — lets callers
+ * that want a stable, reusable audio file (rather than a fresh numbered one
+ * every run) check whether it already exists.
+ */
+export function getExtractedAudioPath(mediaFilePath: string, outputDir?: string): string {
+  const dir = outputDir || path.dirname(mediaFilePath)
+  const baseName = path.basename(mediaFilePath, path.extname(mediaFilePath))
+  return path.join(dir, `${baseName}_audio.mp3`)
+}
+
+/**
  * Extracts audio from a video
  */
 export async function extractAudio(

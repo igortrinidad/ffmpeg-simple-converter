@@ -12,6 +12,7 @@ import type {
 } from '@shared/types'
 import { useSettings } from '../../composables/useSettings'
 import { useClipboard } from '../../composables/useClipboard'
+import HighlightChatPanel from './HighlightChatPanel.vue'
 
 const props = defineProps<{
   filePaths: string[]
@@ -28,7 +29,14 @@ const CUSTOM_MODEL = '__custom__'
 const { state: settings } = useSettings()
 const { copiedKey, copy } = useClipboard()
 
-const availableOperations = computed(() => operationsForType(props.fileKind))
+// A conversation is scoped to a single video, so operations that hand off
+// into the chat panel don't make sense for a batch run.
+const availableOperations = computed(() =>
+  operationsForType(props.fileKind).filter((op) => !op.startsHighlightChat || props.filePaths.length === 1)
+)
+const chatOperationsHiddenForBatch = computed(
+  () => props.filePaths.length > 1 && operationsForType(props.fileKind).some((op) => op.startsHighlightChat)
+)
 
 const operationId = ref<OperationId | null>(null)
 const operation = computed(() => (operationId.value ? getOperation(operationId.value) : null))
@@ -53,10 +61,12 @@ const selectedProvider = computed(() =>
 const stepOrder = computed<string[]>(() => {
   const steps = ['operation']
   if (!operation.value) return steps
-  if (operation.value.needsConversionOptions || operation.value.needsHighlightOptions) {
+  if (operation.value.needsConversionOptions || operation.value.needsHighlightOptions || operation.value.startsHighlightChat) {
     steps.push('options')
   }
-  steps.push('review', 'progress', 'done')
+  steps.push('review', 'progress')
+  if (operation.value.startsHighlightChat) steps.push('chat')
+  steps.push('done')
   return steps
 })
 
@@ -70,13 +80,24 @@ const optionsValid = computed(() => {
     const model = highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice
     return !!model.trim() && !!highlightForm.prompt.trim() && highlightForm.marginSeconds >= 0
   }
+  if (operation.value.startsHighlightChat) {
+    const model = highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice
+    return !!model.trim()
+  }
   return true
 })
+
+const chatModelValue = computed(() =>
+  highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice
+)
+const chatAiOptions = computed(() => ({ provider: highlightForm.provider, model: chatModelValue.value.trim() }))
+const chatJobId = computed(() => progressByFile.get(props.filePaths[0])?.jobId ?? null)
+const chatOutputFiles = ref<string[] | null>(null)
 
 function selectOperation(id: OperationId): void {
   operationId.value = id
   const op = getOperation(id)
-  if (op.needsHighlightOptions && settings.aiProviders.length) {
+  if ((op.needsHighlightOptions || op.startsHighlightChat) && settings.aiProviders.length) {
     const firstConfigured = settings.aiProviders.find((p) => p.hasApiKey) ?? settings.aiProviders[0]
     highlightForm.provider = firstConfigured.provider
     highlightForm.modelChoice = firstConfigured.models[0] ?? CUSTOM_MODEL
@@ -158,6 +179,8 @@ const allOutputFiles = computed(() =>
   props.filePaths.flatMap((filePath) => progressByFile.get(filePath)?.outputFiles ?? [])
 )
 
+const finalOutputFiles = computed(() => chatOutputFiles.value ?? allOutputFiles.value)
+
 const logContainers: (HTMLElement | null)[] = []
 function setLogContainer(index: number, el: Element | null): void {
   logContainers[index] = el as HTMLElement | null
@@ -223,8 +246,14 @@ async function startRun(): Promise<void> {
     overallFailed.value = true
   } finally {
     running.value = false
-    stepIndex.value = stepOrder.value.indexOf('done')
+    const nextStep = operation.value?.startsHighlightChat && !overallFailed.value ? 'chat' : 'done'
+    stepIndex.value = stepOrder.value.indexOf(nextStep)
   }
+}
+
+function onChatFinish(outputFiles: string[]): void {
+  chatOutputFiles.value = outputFiles
+  stepIndex.value = stepOrder.value.indexOf('done')
 }
 
 function fileName(path: string): string {
@@ -235,6 +264,7 @@ function stepIcon(status: string): string {
   if (status === 'completed') return '✅'
   if (status === 'failed') return '❌'
   if (status === 'running') return '⏳'
+  if (status === 'skipped') return '⏭️'
   return '⚪'
 }
 
@@ -262,6 +292,9 @@ async function revealFile(path: string): Promise<void> {
       <!-- Step: operation -->
       <section v-if="currentStep === 'operation'" class="modal-body">
         <p class="step-intro">O que você quer fazer com {{ filePaths.length }} arquivo(s)?</p>
+        <p v-if="chatOperationsHiddenForBatch" class="hint">
+          A opção "conversar com IA" está disponível apenas ao processar 1 arquivo por vez.
+        </p>
         <div class="operation-list">
           <button
             v-for="op in availableOperations"
@@ -333,6 +366,33 @@ async function revealFile(path: string): Promise<void> {
             Esse provedor ainda não tem API key configurada. Configure em ⚙️ Configurações antes de continuar.
           </p>
         </div>
+
+        <div v-if="operation?.startsHighlightChat" class="field-group">
+          <h3>Conversar com IA</h3>
+
+          <label for="chat-provider">Provedor de IA</label>
+          <select id="chat-provider" v-model="highlightForm.provider">
+            <option v-for="p in settings.aiProviders" :key="p.provider" :value="p.provider">
+              {{ p.label }}{{ p.hasApiKey ? '' : ' (sem API key configurada)' }}
+            </option>
+          </select>
+
+          <label for="chat-model">Modelo</label>
+          <select id="chat-model" v-model="highlightForm.modelChoice">
+            <option v-for="m in selectedProvider?.models ?? []" :key="m" :value="m">{{ m }}</option>
+            <option :value="CUSTOM_MODEL">✏️ Outro (digitar manualmente)</option>
+          </select>
+          <input
+            v-if="highlightForm.modelChoice === CUSTOM_MODEL"
+            v-model="highlightForm.customModel"
+            type="text"
+            placeholder="id do modelo"
+          />
+
+          <p v-if="!selectedProvider?.hasApiKey" class="hint hint-warning">
+            Esse provedor ainda não tem API key configurada. Configure em ⚙️ Configurações antes de continuar.
+          </p>
+        </div>
       </section>
 
       <!-- Step: review -->
@@ -352,6 +412,10 @@ async function revealFile(path: string): Promise<void> {
             <dd>{{ highlightForm.provider }} · {{ highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice }}</dd>
             <dt>Margem</dt>
             <dd>{{ highlightForm.marginSeconds }}s antes/depois</dd>
+          </template>
+          <template v-if="operation?.startsHighlightChat">
+            <dt>IA</dt>
+            <dd>{{ highlightForm.provider }} · {{ highlightForm.modelChoice === CUSTOM_MODEL ? highlightForm.customModel : highlightForm.modelChoice }}</dd>
           </template>
         </dl>
       </section>
@@ -395,14 +459,26 @@ async function revealFile(path: string): Promise<void> {
         </div>
       </section>
 
+      <!-- Step: chat -->
+      <section v-else-if="currentStep === 'chat'" class="modal-body">
+        <h3>Conversar com a IA</h3>
+        <HighlightChatPanel
+          v-if="chatJobId"
+          :job-id="chatJobId"
+          :file-path="filePaths[0]"
+          :ai-options="chatAiOptions"
+          @finish="onChatFinish"
+        />
+      </section>
+
       <!-- Step: done -->
       <section v-else-if="currentStep === 'done'" class="modal-body">
         <h3 :class="overallFailed ? 'title-danger' : 'title-success'">
           {{ overallFailed ? '⚠️ Concluído com erros' : '✅ Concluído!' }}
         </h3>
 
-        <ul v-if="allOutputFiles.length" class="output-list">
-          <li v-for="file in allOutputFiles" :key="file" class="output-item">
+        <ul v-if="finalOutputFiles.length" class="output-list">
+          <li v-for="file in finalOutputFiles" :key="file" class="output-item">
             <span class="file-name" :title="file">{{ fileName(file) }}</span>
             <button class="btn btn-ghost" @click="openFile(file)">Abrir</button>
             <button class="btn btn-ghost" @click="revealFile(file)">Mostrar na pasta</button>
@@ -413,7 +489,7 @@ async function revealFile(path: string): Promise<void> {
 
       <footer class="modal-footer">
         <button
-          v-if="currentStep !== 'progress' && currentStep !== 'done' && stepIndex > 0"
+          v-if="currentStep !== 'progress' && currentStep !== 'chat' && currentStep !== 'done' && stepIndex > 0"
           class="btn"
           @click="goBack"
         >
@@ -424,7 +500,7 @@ async function revealFile(path: string): Promise<void> {
           Concluir
         </button>
         <button
-          v-else-if="currentStep !== 'progress'"
+          v-else-if="currentStep !== 'progress' && currentStep !== 'chat'"
           class="btn btn-primary"
           :disabled="
             (currentStep === 'operation' && !operationId) ||

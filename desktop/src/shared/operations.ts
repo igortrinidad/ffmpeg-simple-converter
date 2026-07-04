@@ -8,6 +8,13 @@ export interface OperationDefinition {
   steps: string[]
   needsConversionOptions: boolean
   needsHighlightOptions: boolean
+  /**
+   * True for operations that only transcribe the file and then hand off into
+   * the highlight chat panel instead of finishing normally — the AI picks
+   * highlights and cuts clips through the conversation, not through
+   * `needsHighlightOptions`'s upfront prompt/margin form.
+   */
+  startsHighlightChat?: boolean
 }
 
 export const OPERATIONS: OperationDefinition[] = [
@@ -64,6 +71,16 @@ export const OPERATIONS: OperationDefinition[] = [
     steps: ['Extrair áudio', 'Gerar legendas', 'Selecionar destaques com IA', 'Cortar clipes'],
     needsConversionOptions: false,
     needsHighlightOptions: true
+  },
+  {
+    id: 'video-highlights-chat',
+    label: 'Escolher melhores trechos (conversar com IA)',
+    description: 'Transcreve o vídeo e abre um chat para você e a IA definirem juntos os melhores momentos, antes de cortar os clipes.',
+    requiresType: 'video',
+    steps: ['Extrair áudio', 'Gerar legendas'],
+    needsConversionOptions: false,
+    needsHighlightOptions: false,
+    startsHighlightChat: true
   },
   {
     id: 'audio-convert-transcribe',

@@ -1,6 +1,7 @@
 import { createAIProvider } from '../ai/index.js'
 import type { AIProviderName } from '../ai/types.js'
 import type { HighlightSegment, TranscriptSegment } from '../types/index.js'
+import { buildTimelineText, normalizeHighlights } from './shared.js'
 
 export interface HighlightExtractionOptions {
   provider: AIProviderName
@@ -9,12 +10,6 @@ export interface HighlightExtractionOptions {
   temperature?: number
   maxTokens?: number
   maxRetries?: number
-}
-
-function buildTimelineText(segments: TranscriptSegment[]): string {
-  return segments
-    .map((segment) => `[${segment.start.toFixed(2)}s - ${segment.end.toFixed(2)}s] ${segment.text.trim()}`)
-    .join('\n')
 }
 
 function buildSystemPrompt(): string {
@@ -41,14 +36,6 @@ function buildSystemPrompt(): string {
     '  - As 3 ideias devem explorar abordagens visuais diferentes entre si (ex.: uma em close-up na expressão facial, uma mais ampla mostrando o cenário/contexto, uma mais conceitual/simbólica ligada ao tema), para dar opções variadas.',
     '- Se nenhum trecho relevante for encontrado, responda com um array vazio: []'
   ].join('\n')
-}
-
-function isValidHighlight(value: any): value is HighlightSegment {
-  return !!value
-    && typeof value.start === 'number'
-    && typeof value.end === 'number'
-    && typeof value.title === 'string'
-    && value.end > value.start
 }
 
 async function runExtraction(
@@ -102,19 +89,7 @@ async function runExtraction(
     throw new Error(`Resposta da IA não é uma lista de highlights válida: ${JSON.stringify(raw).slice(0, 500)}`)
   }
 
-  const highlights = list
-    .filter(isValidHighlight)
-    .map((highlight: any): HighlightSegment => ({
-      start: Math.max(0, highlight.start),
-      end: Math.min(totalDuration, highlight.end),
-      title: String(highlight.title).trim(),
-      reason: highlight.reason ? String(highlight.reason).trim() : undefined,
-      thumbnailPrompts: Array.isArray(highlight.thumbnailPrompts)
-        ? highlight.thumbnailPrompts.map((p: any) => String(p).trim()).filter(Boolean)
-        : []
-    }))
-    .filter((highlight: HighlightSegment) => highlight.end > highlight.start)
-    .sort((a: HighlightSegment, b: HighlightSegment) => a.start - b.start)
+  const highlights = normalizeHighlights(list, totalDuration)
 
   console.log(`✓ ${highlights.length} destaque(s) selecionado(s) pela IA`)
 

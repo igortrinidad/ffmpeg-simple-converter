@@ -5,6 +5,8 @@ import { registerFilesIpc } from './ipc/files'
 import { registerJobsIpc } from './ipc/jobs'
 import { registerHistoryIpc } from './ipc/history'
 import { registerFfmpegIpc } from './ipc/ffmpeg'
+import { registerHighlightChatIpc } from './ipc/highlightChat'
+import { registerMediaProtocol } from './lib/mediaProtocol'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -38,11 +40,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  registerMediaProtocol()
   registerConfigIpc()
   registerFilesIpc()
   registerJobsIpc()
   registerHistoryIpc()
   registerFfmpegIpc()
+  registerHighlightChatIpc()
 
   createWindow()
 
