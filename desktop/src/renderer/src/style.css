@@ -121,6 +121,7 @@ button {
 
 input[type='text'],
 input[type='number'],
+input[type='password'],
 textarea,
 select {
   background: var(--bg-elevated);
@@ -134,10 +135,16 @@ select {
 
 input[type='text']:focus,
 input[type='number']:focus,
+input[type='password']:focus,
 textarea:focus,
 select:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 label {

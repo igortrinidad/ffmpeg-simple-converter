@@ -6,6 +6,7 @@ import { registerJobsIpc } from './ipc/jobs'
 import { registerHistoryIpc } from './ipc/history'
 import { registerFfmpegIpc } from './ipc/ffmpeg'
 import { registerHighlightChatIpc } from './ipc/highlightChat'
+import { registerAgentsIpc } from './ipc/agents'
 import { registerMediaProtocol } from './lib/mediaProtocol'
 
 function createWindow(): void {
@@ -47,6 +48,7 @@ app.whenReady().then(() => {
   registerHistoryIpc()
   registerFfmpegIpc()
   registerHighlightChatIpc()
+  registerAgentsIpc()
 
   createWindow()
 

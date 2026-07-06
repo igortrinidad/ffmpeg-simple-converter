@@ -14,7 +14,7 @@ export interface HighlightChatTurnResult {
   highlights: HighlightSegment[]
 }
 
-function buildChatSystemPrompt(timelineText: string, totalDuration: number): string {
+function buildChatSystemPrompt(timelineText: string, totalDuration: number, objective?: string): string {
   return [
     'Você é um editor de vídeo especialista, conversando com o usuário para juntos escolherem os melhores momentos de uma gravação para virarem cortes/clipes.',
     'Você recebe uma timeline com trechos transcritos, cada linha no formato "[inicioS - fimS] texto", onde os tempos estão em segundos a partir do início do vídeo.',
@@ -22,6 +22,13 @@ function buildChatSystemPrompt(timelineText: string, totalDuration: number): str
     'Timeline transcrita:',
     timelineText,
     '',
+    ...(objective
+      ? [
+          `Objetivo definido para esta conversa (configurado previamente pelo usuário através de um "agente"): ${objective}`,
+          'Use esse objetivo para guiar toda a conversa, mesmo quando o usuário não repetir esse contexto em cada mensagem.',
+          ''
+        ]
+      : []),
     'A cada mensagem do usuário, você recebe também o estado atual da lista de destaques escolhidos (pode estar vazia) e deve responder atualizando essa lista de acordo com o pedido.',
     'Responda APENAS com um JSON no formato:',
     '{ "reply": string, "highlights": [{ "start": number, "end": number, "title": string, "reason": string, "thumbnailPrompts": string[] }] }',
@@ -59,7 +66,8 @@ async function runChatTurn(
   history: HighlightChatMessage[],
   userMessage: string,
   currentHighlights: HighlightSegment[],
-  options: HighlightExtractionOptions
+  options: HighlightExtractionOptions,
+  objective?: string
 ): Promise<HighlightChatTurnResult> {
   const provider = createAIProvider(options.provider, {
     apiKey: options.apiKey,
@@ -76,7 +84,7 @@ async function runChatTurn(
   const totalDuration = segments[segments.length - 1].end
 
   const messages: AIMessage[] = [
-    { role: 'system', content: buildChatSystemPrompt(timelineText, totalDuration) },
+    { role: 'system', content: buildChatSystemPrompt(timelineText, totalDuration, objective) },
     ...history,
     { role: 'user', content: buildTurnMessage(currentHighlights, userMessage) }
   ]
@@ -112,7 +120,8 @@ export async function continueHighlightChat(
   userMessage: string,
   currentHighlights: HighlightSegment[],
   options: HighlightExtractionOptions,
-  fallbackOptions: HighlightExtractionOptions[] = []
+  fallbackOptions: HighlightExtractionOptions[] = [],
+  objective?: string
 ): Promise<HighlightChatTurnResult> {
   if (!segments.length) {
     throw new Error('Nenhum segmento de transcrição disponível para analisar')
@@ -127,7 +136,7 @@ export async function continueHighlightChat(
       if (i > 0) {
         console.log(`\n↪️ Tentando fallback ${i}/${fallbackOptions.length}: ${attemptOptions.provider} (${attemptOptions.model})...`)
       }
-      return await runChatTurn(segments, history, userMessage, currentHighlights, attemptOptions)
+      return await runChatTurn(segments, history, userMessage, currentHighlights, attemptOptions, objective)
     } catch (error: any) {
       lastError = error
       console.warn(`⚠️ Falha ao continuar a conversa de destaques com ${attemptOptions.provider} (${attemptOptions.model}): ${error.message}`)

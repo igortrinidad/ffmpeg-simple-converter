@@ -1,15 +1,28 @@
-import { randomUUID } from 'crypto'
 import {
   continueVideoHighlightChat,
   cutHighlightClipsWithAssets,
   createOutputFolderForFile,
+  exportClipToFormat,
   getStoredConfig
 } from 'mediacript'
-import type { TranscriptSegment, HighlightSegment, HighlightChatMessage, HighlightAIOptions } from 'mediacript'
+import type { TranscriptSegment, HighlightSegment, HighlightAIOptions } from 'mediacript'
 import { resolveHighlightApiKey, buildHighlightFallbackOptions } from './aiOptions'
 import { buildMediaUrl } from './mediaProtocol'
 import { captureConsole, type ConsoleLogLine } from './consoleCapture'
-import type { HighlightChatOptions } from '../../shared/types'
+import {
+  createSession,
+  loadSession,
+  saveSession,
+  listSessions as listPersistedSessions,
+  deleteSession as deletePersistedSession,
+  type PersistedChatSession
+} from './chatSessionStore'
+import type {
+  HighlightChatOptions,
+  ChatSessionSummary,
+  HighlightChatResumeResult,
+  ExportOptionsInput
+} from '../../shared/types'
 
 interface PendingTranscript {
   filePath: string
@@ -17,20 +30,10 @@ interface PendingTranscript {
   audioFilePath: string
 }
 
-interface HighlightChatSession {
-  filePath: string
-  segments: TranscriptSegment[]
-  audioFilePath: string
-  history: HighlightChatMessage[]
-  highlights: HighlightSegment[]
-  aiOptions: HighlightAIOptions
-  fallbackOptions: HighlightAIOptions[]
-}
-
-// In-memory only, like the rest of the desktop app's runtime state — lost on
-// restart, which is fine for a single editing session.
+// Short-lived handoff between a transcribe-only job finishing and the user
+// picking an agent/starting the chat — not a "session" yet, so it doesn't need
+// to survive a restart the way an actual chat session does.
 const pendingTranscripts = new Map<string, PendingTranscript>()
-const sessions = new Map<string, HighlightChatSession>()
 
 /** Called once a transcribe-only job (`operation.startsHighlightChat`) finishes, so `startSession` has something to pick up. */
 export function registerTranscript(
@@ -42,64 +45,110 @@ export function registerTranscript(
   pendingTranscripts.set(jobId, { filePath, segments, audioFilePath })
 }
 
-export function startSession(
-  jobId: string,
-  options: HighlightChatOptions
-): { sessionId: string; segments: TranscriptSegment[]; audioUrl: string } {
-  const pending = pendingTranscripts.get(jobId)
-  if (!pending) {
-    throw new Error('Transcrição não encontrada para esse job — rode a transcrição novamente.')
-  }
-  pendingTranscripts.delete(jobId)
-
+function resolveAiOptions(session: Pick<PersistedChatSession, 'provider' | 'model'>): {
+  aiOptions: HighlightAIOptions
+  fallbackOptions: HighlightAIOptions[]
+} {
   const config = getStoredConfig()
   const aiOptions: HighlightAIOptions = {
-    provider: options.provider,
-    model: options.model,
-    apiKey: resolveHighlightApiKey(options.provider, config)
+    provider: session.provider,
+    model: session.model,
+    apiKey: resolveHighlightApiKey(session.provider, config)
   }
-  const fallbackOptions = buildHighlightFallbackOptions(config, options)
-
-  const sessionId = randomUUID()
-  sessions.set(sessionId, {
-    filePath: pending.filePath,
-    segments: pending.segments,
-    audioFilePath: pending.audioFilePath,
-    history: [],
-    highlights: [],
-    aiOptions,
-    fallbackOptions
-  })
-
-  return { sessionId, segments: pending.segments, audioUrl: buildMediaUrl(pending.audioFilePath) }
+  const fallbackOptions = buildHighlightFallbackOptions(config, session)
+  return { aiOptions, fallbackOptions }
 }
 
-function getSession(sessionId: string): HighlightChatSession {
-  const session = sessions.get(sessionId)
-  if (!session) {
-    throw new Error('Sessão de chat não encontrada — ela pode ter sido encerrada.')
-  }
-  return session
-}
-
-export async function sendMessage(
-  sessionId: string,
+async function runTurn(
+  session: PersistedChatSession,
   message: string
 ): Promise<{ reply: string; highlights: HighlightSegment[] }> {
-  const session = getSession(sessionId)
+  const { aiOptions, fallbackOptions } = resolveAiOptions(session)
 
   const result = await continueVideoHighlightChat(
     session.segments,
     session.history,
     message,
     session.highlights,
-    session.aiOptions,
-    session.fallbackOptions
+    aiOptions,
+    fallbackOptions,
+    session.objective
   )
 
   session.history.push({ role: 'user', content: message }, { role: 'assistant', content: result.reply })
   session.highlights = result.highlights
 
+  return result
+}
+
+export async function startSession(
+  jobId: string,
+  options: HighlightChatOptions,
+  agentId?: string,
+  objective?: string
+): Promise<{ sessionId: string; segments: TranscriptSegment[]; audioUrl: string; initialTurn?: { reply: string; highlights: HighlightSegment[] } }> {
+  const pending = pendingTranscripts.get(jobId)
+  if (!pending) {
+    throw new Error('Transcrição não encontrada para esse job — rode a transcrição novamente.')
+  }
+  pendingTranscripts.delete(jobId)
+
+  const session = createSession({
+    filePath: pending.filePath,
+    segments: pending.segments,
+    audioFilePath: pending.audioFilePath,
+    provider: options.provider,
+    model: options.model,
+    agentId,
+    objective
+  })
+
+  let initialTurn: { reply: string; highlights: HighlightSegment[] } | undefined
+
+  if (objective?.trim()) {
+    initialTurn = await runTurn(session, objective.trim())
+  }
+
+  saveSession(session)
+
+  return {
+    sessionId: session.id,
+    segments: session.segments,
+    audioUrl: buildMediaUrl(session.audioFilePath),
+    initialTurn
+  }
+}
+
+export function listSessions(): ChatSessionSummary[] {
+  return listPersistedSessions()
+}
+
+export function resumeSession(sessionId: string): HighlightChatResumeResult {
+  const session = loadSession(sessionId)
+  return {
+    sessionId: session.id,
+    segments: session.segments,
+    audioUrl: buildMediaUrl(session.audioFilePath),
+    history: session.history,
+    highlights: session.highlights,
+    agentId: session.agentId,
+    exportOptions: session.exportOptions,
+    status: session.status,
+    outputFiles: session.outputFiles
+  }
+}
+
+export function deleteSession(sessionId: string): void {
+  deletePersistedSession(sessionId)
+}
+
+export async function sendMessage(
+  sessionId: string,
+  message: string
+): Promise<{ reply: string; highlights: HighlightSegment[] }> {
+  const session = loadSession(sessionId)
+  const result = await runTurn(session, message)
+  saveSession(session)
   return result
 }
 
@@ -110,13 +159,14 @@ export async function sendMessage(
  * and `processCuts` never cuts something the user explicitly discarded.
  */
 export function removeHighlight(sessionId: string, index: number): { highlights: HighlightSegment[] } {
-  const session = getSession(sessionId)
+  const session = loadSession(sessionId)
 
   if (index < 0 || index >= session.highlights.length) {
     throw new Error('Destaque não encontrado nessa posição.')
   }
 
   session.highlights = session.highlights.filter((_, i) => i !== index)
+  saveSession(session)
 
   return { highlights: session.highlights }
 }
@@ -133,7 +183,7 @@ export function updateHighlightRange(
   start: number,
   end: number
 ): { highlights: HighlightSegment[] } {
-  const session = getSession(sessionId)
+  const session = loadSession(sessionId)
 
   if (index < 0 || index >= session.highlights.length) {
     throw new Error('Destaque não encontrado nessa posição.')
@@ -147,6 +197,7 @@ export function updateHighlightRange(
   session.highlights = session.highlights.map((h, i) =>
     i === index ? { ...h, start: Math.max(0, start), end: Math.min(totalDuration, end) } : h
   )
+  saveSession(session)
 
   return { highlights: session.highlights }
 }
@@ -154,9 +205,10 @@ export function updateHighlightRange(
 export async function processCuts(
   sessionId: string,
   marginSeconds: number,
+  exportOptions?: ExportOptionsInput,
   onLog?: (line: ConsoleLogLine) => void
 ): Promise<{ outputFiles: string[] }> {
-  const session = getSession(sessionId)
+  const session = loadSession(sessionId)
 
   if (!session.highlights.length) {
     throw new Error('Nenhum destaque definido ainda — converse com a IA antes de processar os cortes.')
@@ -176,7 +228,19 @@ export async function processCuts(
     for (const clip of clips) {
       outputFiles.push(clip.clip.outputPath, ...clip.thumbnailFrames)
       if (clip.thumbnailPromptsFile) outputFiles.push(clip.thumbnailPromptsFile)
+
+      if (exportOptions?.formats.length) {
+        for (const formatId of exportOptions.formats) {
+          const exported = await exportClipToFormat(clip.clip.outputPath, formatId, exportOptions.quality, exportOptions.framing, clip.clipDir)
+          outputFiles.push(exported.outputPath)
+        }
+      }
     }
+
+    session.status = 'finished'
+    session.exportOptions = exportOptions
+    session.outputFiles = outputFiles
+    saveSession(session)
 
     return { outputFiles }
   } finally {

@@ -3,7 +3,10 @@ import type {
   AIProviderName as MediacriptAIProviderName,
   HighlightFallbackModel as MediacriptHighlightFallbackModel,
   HighlightSegment as MediacriptHighlightSegment,
-  TranscriptSegment as MediacriptTranscriptSegment
+  TranscriptSegment as MediacriptTranscriptSegment,
+  ExportFormatId as MediacriptExportFormatId,
+  QualityPresetId as MediacriptQualityPresetId,
+  FramingMode as MediacriptFramingMode
 } from 'mediacript'
 
 // Reuse the root project's types (same shared config.json) instead of
@@ -13,6 +16,25 @@ export type AIProviderName = MediacriptAIProviderName
 export type HighlightFallbackModel = MediacriptHighlightFallbackModel
 export type HighlightSegment = MediacriptHighlightSegment
 export type TranscriptSegment = MediacriptTranscriptSegment
+export type ExportFormatId = MediacriptExportFormatId
+export type QualityPresetId = MediacriptQualityPresetId
+export type FramingMode = MediacriptFramingMode
+
+export interface ExportOptionsInput {
+  formats: ExportFormatId[]
+  quality: QualityPresetId
+  framing: FramingMode
+}
+
+export interface Agent {
+  id: string
+  name: string
+  /** Main objective prompt, reused every time this agent starts a chat conversation */
+  prompt: string
+  exportOptions: ExportOptionsInput
+  createdAt: string
+  updatedAt: string
+}
 
 export interface AIProviderOption {
   provider: AIProviderName
@@ -55,6 +77,8 @@ export interface JobRequest {
   filePaths: string[]
   conversionOptions?: ConversionOptionsInput
   highlightOptions?: HighlightOptionsInput
+  /** Extra platform formats (16:9, 9:16, Reels, TikTok, ...) to also export the final video output(s) into */
+  exportOptions?: ExportOptionsInput
 }
 
 export type JobStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -100,6 +124,7 @@ export interface HistoryEntry {
   /** Options the job actually ran with, kept so it can be retried without retyping them */
   conversionOptions?: ConversionOptionsInput
   highlightOptions?: HighlightOptionsInput
+  exportOptions?: ExportOptionsInput
 }
 
 /** What's needed to re-open the wizard pre-filled from a past history entry */
@@ -108,6 +133,7 @@ export interface RetryRequest {
   operation: OperationId
   conversionOptions?: ConversionOptionsInput
   highlightOptions?: HighlightOptionsInput
+  exportOptions?: ExportOptionsInput
 }
 
 export interface FfmpegStatus {
@@ -131,6 +157,9 @@ export interface HighlightChatMessage {
 export interface HighlightChatStartRequest {
   jobId: string
   options: HighlightChatOptions
+  agentId?: string
+  /** The agent's main objective prompt, if one was selected — kept as system-level context for the whole conversation and auto-sent as the first turn so highlights appear without the user typing anything. */
+  objective?: string
 }
 
 export interface HighlightChatStartResult {
@@ -139,6 +168,34 @@ export interface HighlightChatStartResult {
   segments: TranscriptSegment[]
   /** URL (custom `mediacript-media://` scheme) an `<audio>` element can use directly as `src` to play the extracted audio. */
   audioUrl: string
+  /** Present when an agent's objective prompt was auto-sent as the first turn — the renderer shows this instead of the generic greeting and doesn't need to wait for user input. */
+  initialTurn?: { reply: string; highlights: HighlightSegment[] }
+}
+
+export interface ChatMessageEntry {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** Full state needed to reopen (History → "Continuar conversa") a chat session exactly where it left off */
+export interface HighlightChatResumeResult extends HighlightChatStartResult {
+  history: ChatMessageEntry[]
+  highlights: HighlightSegment[]
+  agentId?: string
+  exportOptions?: ExportOptionsInput
+  status: 'active' | 'finished'
+  outputFiles?: string[]
+}
+
+export interface ChatSessionSummary {
+  id: string
+  filePath: string
+  agentId?: string
+  status: 'active' | 'finished'
+  messageCount: number
+  highlightCount: number
+  updatedAt: string
+  outputFiles?: string[]
 }
 
 export interface HighlightChatSendRequest {
@@ -154,6 +211,7 @@ export interface HighlightChatSendResult {
 export interface HighlightChatCutRequest {
   sessionId: string
   marginSeconds: number
+  exportOptions?: ExportOptionsInput
 }
 
 export interface HighlightChatCutResult {

@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { AIProviderName, HighlightChatLogLine, HighlightSegment, TranscriptSegment } from '@shared/types'
+import { computed, nextTick, onMounted, ref, reactive, watch } from 'vue'
+import type { AIProviderName, ExportOptionsInput, HighlightSegment, TranscriptSegment } from '@shared/types'
+
+interface StartParams {
+  jobId: string
+  provider: AIProviderName
+  model: string
+  agentId?: string
+  objective?: string
+}
 
 const props = defineProps<{
-  jobId: string
-  filePath: string
-  aiOptions: { provider: AIProviderName; model: string }
+  mode: 'start' | 'resume'
+  startParams?: StartParams
+  resumeSessionId?: string
 }>()
 
 const emit = defineEmits<{
-  finish: [outputFiles: string[]]
+  continue: [sessionId: string, marginSeconds: number]
+  /** Fired once after a `resume` finishes loading, so the parent can seed the output-selection step from what this session already had configured. */
+  resumed: [info: { agentId?: string; exportOptions?: ExportOptionsInput }]
 }>()
 
 interface ChatBubble {
@@ -24,8 +34,6 @@ const messages = reactive<ChatBubble[]>([])
 const highlights = ref<HighlightSegment[]>([])
 const input = ref('')
 const sending = ref(false)
-const cutting = ref(false)
-const cutError = ref<string | null>(null)
 const marginSeconds = ref(2)
 const removingIndex = ref<number | null>(null)
 const removeError = ref<string | null>(null)
@@ -35,26 +43,11 @@ const rangeErrorIndex = ref<number | null>(null)
 const audioUrl = ref('')
 const audioError = ref<string | null>(null)
 const playingIndex = ref<number | null>(null)
-const cutLogs = reactive<HighlightChatLogLine[]>([])
 
 const totalDuration = computed(() => (segments.value.length ? segments.value[segments.value.length - 1].end : 0))
 
 const messagesEl = ref<HTMLElement | null>(null)
 const audioEl = ref<HTMLAudioElement | null>(null)
-const cutLogsEl = ref<HTMLElement | null>(null)
-
-// Caps how many lines are kept so a long cut run doesn't grow the log panel
-// (and the reactive array driving it) without bound — mirrors the wizard's job log.
-const MAX_CUT_LOG_LINES = 300
-let unsubscribeCutLogs: (() => void) | null = null
-
-watch(
-  () => cutLogs.length,
-  async () => {
-    await nextTick()
-    if (cutLogsEl.value) cutLogsEl.value.scrollTop = cutLogsEl.value.scrollHeight
-  }
-)
 
 watch(
   () => messages.length,
@@ -65,30 +58,47 @@ watch(
 )
 
 onMounted(async () => {
-  unsubscribeCutLogs = window.api.highlightChat.onLog((line) => {
-    if (line.sessionId !== sessionId.value) return
-    cutLogs.push(line)
-    if (cutLogs.length > MAX_CUT_LOG_LINES) cutLogs.splice(0, cutLogs.length - MAX_CUT_LOG_LINES)
-  })
-
   try {
-    const result = await window.api.highlightChat.start({ jobId: props.jobId, options: props.aiOptions })
-    sessionId.value = result.sessionId
-    segments.value = result.segments
-    audioUrl.value = result.audioUrl
-    messages.push({
-      role: 'assistant',
-      content: 'Pronto! Já tenho a transcrição do vídeo. Me diga que tipo de trecho você quer destacar (ex: "os melhores momentos de humor").'
-    })
+    if (props.mode === 'start' && props.startParams) {
+      const result = await window.api.highlightChat.start({
+        jobId: props.startParams.jobId,
+        options: { provider: props.startParams.provider, model: props.startParams.model },
+        agentId: props.startParams.agentId,
+        objective: props.startParams.objective
+      })
+      sessionId.value = result.sessionId
+      segments.value = result.segments
+      audioUrl.value = result.audioUrl
+
+      if (result.initialTurn) {
+        messages.push({ role: 'assistant', content: result.initialTurn.reply })
+        highlights.value = result.initialTurn.highlights
+      } else {
+        messages.push({
+          role: 'assistant',
+          content:
+            'Pronto! Já tenho a transcrição do vídeo. Me diga que tipo de trecho você quer destacar (ex: "os melhores momentos de humor").'
+        })
+      }
+    } else if (props.mode === 'resume' && props.resumeSessionId) {
+      const result = await window.api.highlightChat.resume(props.resumeSessionId)
+      sessionId.value = result.sessionId
+      segments.value = result.segments
+      audioUrl.value = result.audioUrl
+      highlights.value = result.highlights
+      for (const entry of result.history) {
+        messages.push({ role: entry.role, content: entry.content })
+      }
+      if (!messages.length) {
+        messages.push({ role: 'assistant', content: 'Sessão retomada — a conversa continua daqui.' })
+      }
+      emit('resumed', { agentId: result.agentId, exportOptions: result.exportOptions })
+    }
   } catch (error: any) {
     startError.value = error?.message || String(error)
   } finally {
     starting.value = false
   }
-})
-
-onUnmounted(() => {
-  unsubscribeCutLogs?.()
 })
 
 function stopPlayback(): void {
@@ -133,7 +143,6 @@ async function removeHighlightAt(index: number): Promise<void> {
   }
 }
 
-/** What's being said at time `t`, so the user can see what a slider position actually selects. */
 function textAtTime(t: number): string {
   if (!segments.value.length) return ''
 
@@ -146,7 +155,6 @@ function textAtTime(t: number): string {
   return text.length > 90 ? `${text.slice(0, 90)}…` : text
 }
 
-/** Plays just [start, end] of the shared audio for this highlight; clicking the same one again stops it. */
 function playHighlight(index: number): void {
   const el = audioEl.value
   if (!el) return
@@ -165,7 +173,6 @@ function playHighlight(index: number): void {
   })
 }
 
-/** Auto-stops at the highlight's current `end` — read live, so dragging the end slider mid-playback takes effect immediately. */
 function onTimeUpdate(): void {
   if (playingIndex.value === null) return
   const highlight = highlights.value[playingIndex.value]
@@ -174,14 +181,6 @@ function onTimeUpdate(): void {
   }
 }
 
-/**
- * Jumps playback to the new start immediately while the user drags that
- * highlight's start slider, so it's audible right away. Reads the value
- * straight off the event target rather than `highlights.value[index].start`
- * — that ref's `v-model` listener isn't guaranteed to run before this one
- * for the same native `input` event, so relying on it would sometimes seek
- * to the previous (stale) value instead of the one just dragged to.
- */
 function onStartSliderInput(index: number, event: Event): void {
   if (playingIndex.value !== index || !audioEl.value) return
   audioEl.value.currentTime = Number((event.target as HTMLInputElement).value)
@@ -211,39 +210,21 @@ async function commitHighlightRange(index: number): Promise<void> {
   }
 }
 
-async function processCuts(): Promise<void> {
-  if (!sessionId.value || !highlights.value.length || cutting.value) return
-
-  cutting.value = true
-  cutError.value = null
-  cutLogs.splice(0, cutLogs.length)
-
-  try {
-    const result = await window.api.highlightChat.processCuts({
-      sessionId: sessionId.value,
-      marginSeconds: marginSeconds.value
-    })
-    emit('finish', result.outputFiles)
-  } catch (error: any) {
-    cutError.value = error?.message || String(error)
-  } finally {
-    cutting.value = false
-  }
-}
-
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
+function onContinue(): void {
+  if (!sessionId.value || !highlights.value.length) return
+  emit('continue', sessionId.value, marginSeconds.value)
+}
 </script>
 
 <template>
   <div class="chat-panel">
-    <p class="file-label" :title="filePath">{{ fileName }}</p>
-    <p v-if="starting" class="hint">Carregando a transcrição…</p>
+    <p v-if="starting" class="hint">Carregando a conversa…</p>
     <p v-else-if="startError" class="hint hint-warning">
       Não foi possível iniciar o chat: {{ startError }}
     </p>
@@ -342,24 +323,12 @@ const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
         Nenhum destaque selecionado ainda — continue conversando para a IA escolher os melhores trechos.
       </p>
 
-      <div class="cut-bar">
+      <div class="continue-bar">
         <label for="chat-margin">Margem antes/depois (segundos)</label>
         <input id="chat-margin" v-model.number="marginSeconds" type="number" min="0" step="1" />
-        <button
-          class="btn btn-primary"
-          type="button"
-          :disabled="!highlights.length || cutting"
-          @click="processCuts"
-        >
-          {{ cutting ? 'Cortando clipes…' : '🎬 Processar cortes' }}
+        <button class="btn btn-primary" type="button" :disabled="!highlights.length" @click="onContinue">
+          Continuar →
         </button>
-      </div>
-      <p v-if="cutError" class="hint hint-warning">{{ cutError }}</p>
-
-      <div v-if="cutLogs.length" ref="cutLogsEl" class="file-log">
-        <div v-for="(line, index) in cutLogs" :key="index" class="log-line" :class="`log-${line.level}`">
-          {{ line.text }}
-        </div>
       </div>
     </template>
   </div>
@@ -371,6 +340,8 @@ const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
   flex-direction: column;
   gap: 12px;
   min-height: 360px;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .messages {
@@ -530,7 +501,7 @@ const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
   color: var(--danger);
 }
 
-.cut-bar {
+.continue-bar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -539,21 +510,12 @@ const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
   font-size: 13px;
 }
 
-.cut-bar label {
+.continue-bar label {
   color: var(--text-muted);
 }
 
-.cut-bar input[type='number'] {
+.continue-bar input[type='number'] {
   width: 64px;
-}
-
-.file-label {
-  font-weight: 600;
-  font-size: 13px;
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .hint {
@@ -563,38 +525,5 @@ const fileName = props.filePath.split(/[/\\]/).pop() || props.filePath
 
 .hint-warning {
   color: var(--warning);
-}
-
-.file-log {
-  margin-top: 4px;
-  max-height: 140px;
-  overflow-y: auto;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 4%, var(--bg));
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  /* This is effectively a mirrored terminal — needs to stay selectable/copyable for debugging. */
-  user-select: text;
-}
-
-.log-line {
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text-muted);
-}
-
-.log-line.log-warn {
-  color: var(--warning);
-}
-
-.log-line.log-error {
-  color: var(--danger);
-}
-
-.log-line.log-progress {
-  opacity: 0.75;
-  font-style: italic;
 }
 </style>

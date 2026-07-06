@@ -1,5 +1,6 @@
 import { reactive, readonly } from 'vue'
 import type { Config, AIProviderOption, FfmpegStatus } from '@shared/types'
+import { toPlain } from '../shared/toPlain'
 
 const state = reactive({
   config: {} as Config,
@@ -21,7 +22,7 @@ async function load(): Promise<void> {
 }
 
 async function save(values: Partial<Config>): Promise<void> {
-  state.config = await window.api.config.save(values)
+  state.config = await window.api.config.save(toPlain(values))
   state.aiProviders = await window.api.config.listAIProviders()
 }
 

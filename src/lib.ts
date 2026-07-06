@@ -18,10 +18,22 @@ import {
   splitAudioIntoChunks,
   cutVideoSegments,
   cutVideoSegment,
+  exportClipToFormat as exportClipToFormatInternal,
   type ConversionOptions,
   type ConversionPreset,
   type HardwareAcceleration
 } from './utils/ffmpegOperations.js'
+import {
+  EXPORT_FORMATS,
+  QUALITY_PRESETS,
+  getExportFormat,
+  getQualityPreset,
+  type ExportFormatId,
+  type ExportFormatDefinition,
+  type QualityPresetId,
+  type QualityPresetDefinition,
+  type FramingMode
+} from './utils/exportFormats.js'
 import { transcribeAudio, transcribeAudioWithSegments, saveTranscription } from './transcript/index.js'
 import { saveSrtFile, getSrtOutputPath, loadSrtFile } from './subtitles/srt.js'
 import { extractHighlightsFromTranscript, applyHighlightMargin } from './highlights/index.js'
@@ -96,6 +108,12 @@ export interface HighlightAIOptions {
 // Re-export conversion types for convenience
 export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
 export { getExtractedAudioPath }
+
+// Re-export the export-format/quality catalog and types for consumers (e.g. the
+// desktop app's Agents/Convert flows) that let the user pick a target platform
+// aspect ratio and quality level
+export { EXPORT_FORMATS, QUALITY_PRESETS, getExportFormat, getQualityPreset }
+export type { ExportFormatId, ExportFormatDefinition, QualityPresetId, QualityPresetDefinition, FramingMode }
 
 // Re-export AI provider types/constants for convenience
 export { AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS, createAIProvider }
@@ -375,9 +393,10 @@ export async function continueVideoHighlightChat(
   userMessage: string,
   currentHighlights: HighlightSegment[],
   aiOptions: HighlightAIOptions,
-  fallbackOptions: HighlightAIOptions[] = []
+  fallbackOptions: HighlightAIOptions[] = [],
+  objective?: string
 ): Promise<HighlightChatTurnResult> {
-  return continueHighlightChat(segments, history, userMessage, currentHighlights, aiOptions, fallbackOptions)
+  return continueHighlightChat(segments, history, userMessage, currentHighlights, aiOptions, fallbackOptions, objective)
 }
 
 /**
@@ -481,6 +500,30 @@ export async function cutHighlightClipsWithAssets(
   }
 
   return results
+}
+
+/**
+ * Re-frames a clip (or any video file) into a target export format's aspect
+ * ratio (e.g. 9:16 for Reels/TikTok/Shorts), applying a quality preset. If the
+ * source already matches the target aspect ratio, remuxes losslessly instead
+ * of re-encoding.
+ * @param inputPath - Path to the source video
+ * @param formatId - Which entry of `EXPORT_FORMATS` to export to
+ * @param qualityId - Which entry of `QUALITY_PRESETS` to use (only relevant when a re-encode is needed)
+ * @param framing - `'crop'` fills the target frame and crops the overflow; `'blur-pad'` keeps the whole frame visible over a blurred, scaled-up copy of itself
+ * @param outputDir - Optional output directory (defaults to input file directory)
+ */
+export async function exportClipToFormat(
+  inputPath: string,
+  formatId: ExportFormatId,
+  qualityId: QualityPresetId,
+  framing: FramingMode,
+  outputDir?: string
+): Promise<ConversionResult> {
+  const outputPath = await exportClipToFormatInternal(inputPath, getExportFormat(formatId), getQualityPreset(qualityId), framing, {
+    outputDir
+  })
+  return { outputPath, originalPath: inputPath }
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   extractVideoHighlights,
   cutHighlightClipsWithAssets,
   createOutputFolderForFile,
+  exportClipToFormat,
   getStoredConfig
 } from 'mediacript'
 import type { TranscriptSegment, HighlightSegment } from 'mediacript'
@@ -60,8 +61,15 @@ async function runJobForFile(
   const filePath = request.filePaths[fileIndex]
   const jobId = randomUUID()
   const startedAt = new Date().toISOString()
-  const steps: JobStepState[] = operation.steps.map((name) => ({ name, status: 'pending' }))
+  const wantsFormatExport = !!request.exportOptions?.formats.length
+  // "Exportar formatos" isn't baked into OPERATIONS.steps — it's driven by the
+  // user's export selection at run time, and applies across many operations.
+  const stepNames = wantsFormatExport ? [...operation.steps, 'Exportar formatos'] : operation.steps
+  const steps: JobStepState[] = stepNames.map((name) => ({ name, status: 'pending' }))
   const outputFiles: string[] = []
+  // Subset of outputFiles eligible for platform re-export (final video outputs only —
+  // not audio/text/srt/thumbnail files).
+  const videoOutputFiles: string[] = []
 
   const emitProgress = (status: JobEvent['status'], error?: string): void => {
     emit({
@@ -139,6 +147,7 @@ async function runJobForFile(
         })
         currentFile = result.outputPath
         outputFiles.push(result.outputPath)
+        videoOutputFiles.push(result.outputPath)
       })
     }
 
@@ -244,6 +253,19 @@ async function runJobForFile(
         for (const clip of clips) {
           outputFiles.push(clip.clip.outputPath, ...clip.thumbnailFrames)
           if (clip.thumbnailPromptsFile) outputFiles.push(clip.thumbnailPromptsFile)
+          videoOutputFiles.push(clip.clip.outputPath)
+        }
+      })
+    }
+
+    if (ok && wantsFormatExport) {
+      ok = await runStep('Exportar formatos', async () => {
+        const { formats, quality, framing } = request.exportOptions!
+        for (const videoFile of videoOutputFiles) {
+          for (const formatId of formats) {
+            const exported = await exportClipToFormat(videoFile, formatId, quality, framing, outputDir)
+            outputFiles.push(exported.outputPath)
+          }
         }
       })
     }
@@ -268,6 +290,7 @@ async function runJobForFile(
     status: ok ? 'completed' : 'failed',
     error: ok ? undefined : steps.find((s) => s.status === 'failed')?.error,
     conversionOptions: request.conversionOptions,
-    highlightOptions: request.highlightOptions
+    highlightOptions: request.highlightOptions,
+    exportOptions: request.exportOptions
   })
 }

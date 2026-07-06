@@ -1,5 +1,14 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import { startSession, sendMessage, processCuts, removeHighlight, updateHighlightRange } from '../lib/highlightChatRunner'
+import {
+  startSession,
+  sendMessage,
+  processCuts,
+  removeHighlight,
+  updateHighlightRange,
+  listSessions,
+  resumeSession,
+  deleteSession
+} from '../lib/highlightChatRunner'
 import type {
   HighlightChatStartRequest,
   HighlightChatStartResult,
@@ -10,14 +19,16 @@ import type {
   HighlightChatRemoveRequest,
   HighlightChatRemoveResult,
   HighlightChatUpdateRequest,
-  HighlightChatUpdateResult
+  HighlightChatUpdateResult,
+  ChatSessionSummary,
+  HighlightChatResumeResult
 } from '../../shared/types'
 
 export function registerHighlightChatIpc(): void {
   ipcMain.handle(
     'highlightChat:start',
     async (_event, request: HighlightChatStartRequest): Promise<HighlightChatStartResult> => {
-      return startSession(request.jobId, request.options)
+      return startSession(request.jobId, request.options, request.agentId, request.objective)
     }
   )
 
@@ -33,7 +44,7 @@ export function registerHighlightChatIpc(): void {
     async (event, request: HighlightChatCutRequest): Promise<HighlightChatCutResult> => {
       const window = BrowserWindow.fromWebContents(event.sender)
 
-      return processCuts(request.sessionId, request.marginSeconds, (line) => {
+      return processCuts(request.sessionId, request.marginSeconds, request.exportOptions, (line) => {
         window?.webContents.send('highlightChat:log', {
           sessionId: request.sessionId,
           ...line,
@@ -56,4 +67,16 @@ export function registerHighlightChatIpc(): void {
       return updateHighlightRange(request.sessionId, request.index, request.start, request.end)
     }
   )
+
+  ipcMain.handle('highlightChat:list', async (): Promise<ChatSessionSummary[]> => {
+    return listSessions()
+  })
+
+  ipcMain.handle('highlightChat:resume', async (_event, sessionId: string): Promise<HighlightChatResumeResult> => {
+    return resumeSession(sessionId)
+  })
+
+  ipcMain.handle('highlightChat:delete', async (_event, sessionId: string): Promise<void> => {
+    deleteSession(sessionId)
+  })
 }

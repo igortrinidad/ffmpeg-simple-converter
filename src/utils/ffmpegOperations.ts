@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import type { ExportFormatDefinition, FramingMode, QualityPresetDefinition } from './exportFormats.js'
 
 export type ConversionPreset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow'
 export type HardwareAcceleration = 'none' | 'auto' | 'nvenc' | 'qsv' | 'vaapi'
@@ -563,6 +564,116 @@ export async function extractVideoFrame(
   ]
 
   await runFfmpegCommand(args)
+  return outputPath
+}
+
+/**
+ * Probes a video's frame dimensions via ffprobe. Used to decide whether
+ * exporting to a target aspect ratio needs an actual crop/pad re-encode, or
+ * whether the source already matches (cheap remux instead).
+ */
+export function getVideoDimensions(inputPath: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const ffprobe = spawn('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=s=x:p=0',
+      inputPath
+    ])
+
+    let output = ''
+    ffprobe.stdout.on('data', (data) => {
+      output += data.toString()
+    })
+
+    ffprobe.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Failed to probe video dimensions, code ${code}`))
+        return
+      }
+      const [widthStr, heightStr] = output.trim().split('x')
+      const width = parseInt(widthStr, 10)
+      const height = parseInt(heightStr, 10)
+      if (!width || !height) {
+        reject(new Error(`Could not parse video dimensions from ffprobe output: "${output.trim()}"`))
+        return
+      }
+      resolve({ width, height })
+    })
+
+    ffprobe.on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+/**
+ * Re-frames a clip into a target export format's aspect ratio (e.g. 9:16 for
+ * Reels/TikTok/Shorts), applying a quality preset.
+ *
+ * If the source already matches the target aspect ratio (within 1%), this
+ * just remuxes with `-c copy` — zero quality loss, and the `quality` preset is
+ * ignored entirely, since there's nothing to re-encode. Otherwise, the frame
+ * has to be physically cropped or padded, so it re-encodes using the quality
+ * preset's preset/crf ("original quality" then means a near-lossless re-encode,
+ * not a literal copy — the pixels themselves are changing).
+ */
+export async function exportClipToFormat(
+  inputPath: string,
+  format: ExportFormatDefinition,
+  quality: QualityPresetDefinition,
+  framing: FramingMode,
+  options?: { outputDir?: string; outputName?: string }
+): Promise<string> {
+  const dir = options?.outputDir || path.dirname(inputPath)
+  const baseName = options?.outputName || path.basename(inputPath, path.extname(inputPath))
+  const outputPath = uniqueOutputPath(dir, `${baseName}_${format.id}`, '.mp4')
+
+  const { width: srcWidth, height: srcHeight } = await getVideoDimensions(inputPath)
+  const sourceAspect = srcWidth / srcHeight
+  const targetAspect = format.width / format.height
+  const aspectMatches = Math.abs(sourceAspect - targetAspect) / targetAspect < 0.01
+
+  console.log(`\n🖼️  Exportando para ${format.label} (${format.width}x${format.height})...`)
+
+  if (aspectMatches) {
+    console.log('   Proporção já compatível — remux sem perdas (-c copy)')
+    await runFfmpegCommand(['-i', inputPath, '-c', 'copy', '-movflags', '+faststart', '-y', outputPath])
+    console.log(`✓ Exportado: ${path.basename(outputPath)}`)
+    return outputPath
+  }
+
+  const { width: w, height: h } = format
+  const args = ['-i', inputPath]
+
+  if (framing === 'crop') {
+    args.push('-vf', `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`)
+  } else {
+    args.push(
+      '-filter_complex',
+      `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},gblur=sigma=20[bg];` +
+        `[0:v]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg];` +
+        `[bg][fg]overlay=(W-w)/2:(H-h)/2[v]`,
+      '-map', '[v]',
+      '-map', '0:a?'
+    )
+  }
+
+  args.push(
+    '-c:v', 'libx264',
+    '-preset', quality.preset,
+    '-crf', String(quality.crf),
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-movflags', '+faststart',
+    '-y',
+    outputPath
+  )
+
+  await runFfmpegCommand(args)
+  console.log(`✓ Exportado: ${path.basename(outputPath)}`)
   return outputPath
 }
 

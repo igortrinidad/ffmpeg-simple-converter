@@ -17,7 +17,10 @@ import type {
   HighlightChatRemoveResult,
   HighlightChatUpdateRequest,
   HighlightChatUpdateResult,
-  HighlightChatLogLine
+  HighlightChatLogLine,
+  ChatSessionSummary,
+  HighlightChatResumeResult,
+  Agent
 } from '../shared/types'
 
 const api = {
@@ -72,11 +75,22 @@ const api = {
       ipcRenderer.invoke('highlightChat:removeHighlight', request),
     updateHighlight: (request: HighlightChatUpdateRequest): Promise<HighlightChatUpdateResult> =>
       ipcRenderer.invoke('highlightChat:updateHighlight', request),
+    list: (): Promise<ChatSessionSummary[]> => ipcRenderer.invoke('highlightChat:list'),
+    resume: (sessionId: string): Promise<HighlightChatResumeResult> => ipcRenderer.invoke('highlightChat:resume', sessionId),
+    delete: (sessionId: string): Promise<void> => ipcRenderer.invoke('highlightChat:delete', sessionId),
     onLog: (callback: (line: HighlightChatLogLine) => void): (() => void) => {
       const listener = (_: unknown, line: HighlightChatLogLine) => callback(line)
       ipcRenderer.on('highlightChat:log', listener)
       return () => ipcRenderer.removeListener('highlightChat:log', listener)
     }
+  },
+
+  agents: {
+    list: (): Promise<Agent[]> => ipcRenderer.invoke('agents:list'),
+    get: (id: string): Promise<Agent | null> => ipcRenderer.invoke('agents:get', id),
+    save: (input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<Agent> =>
+      ipcRenderer.invoke('agents:save', input),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('agents:delete', id)
   }
 }
 

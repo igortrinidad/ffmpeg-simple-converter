@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { detectFileKind } from '@shared/fileKind'
-import type { FileKind, RetryRequest } from '@shared/types'
-import { useSettings } from '../composables/useSettings'
-import { useRetry } from '../composables/useRetry'
-import WizardModal from '../components/wizard/WizardModal.vue'
+import type { FileKind } from '@shared/types'
+import { useSettings } from '../../composables/useSettings'
+
+const { state: settings } = useSettings()
 
 interface SelectedFile {
   path: string
@@ -12,28 +12,25 @@ interface SelectedFile {
   kind: FileKind | null
 }
 
-const { state: settings, load: loadSettings } = useSettings()
-const retry = useRetry()
+const props = defineProps<{
+  /** Caps how many files can be selected at once (e.g. Chat's per-video flow uses 1). Omit for unlimited. */
+  maxFiles?: number
+  /** Restricts accepted files to a single kind (e.g. Chat only supports video). Omit to accept either, as long as they're not mixed. */
+  onlyKind?: FileKind
+}>()
+
+const emit = defineEmits<{
+  continue: [paths: string[], kind: FileKind]
+}>()
 
 const files = ref<SelectedFile[]>([])
 const isDragging = ref(false)
-const showWizard = ref(false)
-const retryRequest = ref<RetryRequest | null>(null)
-
-onMounted(async () => {
-  await loadSettings()
-
-  const pending = retry.consumeRetry()
-  if (pending) {
-    addPaths([pending.filePath])
-    retryRequest.value = pending
-    showWizard.value = true
-  }
-})
 
 const kindsPresent = computed(() => new Set(files.value.map((f) => f.kind).filter(Boolean)))
 const hasMixedKinds = computed(() => kindsPresent.value.size > 1)
-const hasUnsupported = computed(() => files.value.some((f) => f.kind === null))
+const hasUnsupported = computed(
+  () => files.value.some((f) => f.kind === null || (props.onlyKind && f.kind !== props.onlyKind))
+)
 const canContinue = computed(
   () => files.value.length > 0 && !hasMixedKinds.value && !hasUnsupported.value
 )
@@ -44,8 +41,10 @@ const detectedKind = computed<FileKind | null>(() => {
 
 function addPaths(paths: string[]): void {
   const existing = new Set(files.value.map((f) => f.path))
+
   for (const filePath of paths) {
     if (existing.has(filePath)) continue
+    if (props.maxFiles && files.value.length >= props.maxFiles) break
     files.value.push({
       path: filePath,
       name: filePath.split(/[/\\]/).pop() || filePath,
@@ -74,17 +73,14 @@ async function openFilePicker(): Promise<void> {
   addPaths(paths)
 }
 
-function onWizardClosed(finished: boolean): void {
-  showWizard.value = false
-  retryRequest.value = null
-  if (finished) {
-    clearFiles()
-  }
+function onContinue(): void {
+  if (!canContinue.value || !detectedKind.value) return
+  emit('continue', files.value.map((f) => f.path), detectedKind.value)
 }
 </script>
 
 <template>
-  <div class="home">
+  <div class="dropzone-wrap">
     <div v-if="!settings.ffmpeg.installed" class="banner banner-warning">
       ⚠️ FFmpeg não foi encontrado no sistema. Instale o FFmpeg e reabra o aplicativo para poder
       converter ou transcrever arquivos.
@@ -106,7 +102,7 @@ function onWizardClosed(finished: boolean): void {
 
     <section v-if="files.length" class="selected card">
       <div class="selected-header">
-        <h3>Arquivos selecionados ({{ files.length }})</h3>
+        <h3>Arquivos selecionados ({{ files.length }}{{ maxFiles ? `/${maxFiles}` : '' }})</h3>
         <button class="btn btn-ghost" @click="clearFiles">Limpar tudo</button>
       </div>
 
@@ -127,23 +123,15 @@ function onWizardClosed(finished: boolean): void {
         </li>
       </ul>
 
-      <button class="btn btn-primary continue-btn" :disabled="!canContinue" @click="showWizard = true">
+      <button class="btn btn-primary continue-btn" :disabled="!canContinue" @click="onContinue">
         Continuar →
       </button>
     </section>
-
-    <WizardModal
-      v-if="showWizard && detectedKind"
-      :file-paths="files.map((f) => f.path)"
-      :file-kind="detectedKind"
-      :initial-request="retryRequest"
-      @close="onWizardClosed"
-    />
   </div>
 </template>
 
 <style scoped>
-.home {
+.dropzone-wrap {
   display: flex;
   flex-direction: column;
   gap: 20px;
