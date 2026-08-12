@@ -7,6 +7,8 @@ import type {
   JobLogLine,
   HistoryEntry,
   FfmpegStatus,
+  CompressRequest,
+  CompressResult,
   HighlightChatStartRequest,
   HighlightChatStartResult,
   HighlightChatSendRequest,
@@ -26,6 +28,10 @@ import type {
 const api = {
   ffmpeg: {
     check: (): Promise<FfmpegStatus> => ipcRenderer.invoke('ffmpeg:check')
+  },
+
+  compress: {
+    run: (request: CompressRequest): Promise<CompressResult> => ipcRenderer.invoke('compress:run', request)
   },
 
   config: {

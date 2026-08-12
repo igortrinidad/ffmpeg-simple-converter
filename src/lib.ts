@@ -19,9 +19,11 @@ import {
   cutVideoSegments,
   cutVideoSegment,
   exportClipToFormat as exportClipToFormatInternal,
+  compressVideoToTargetSize,
   type ConversionOptions,
   type ConversionPreset,
-  type HardwareAcceleration
+  type HardwareAcceleration,
+  type CompressToTargetSizeOptions
 } from './utils/ffmpegOperations.js'
 import {
   EXPORT_FORMATS,
@@ -106,7 +108,7 @@ export interface HighlightAIOptions {
 }
 
 // Re-export conversion types for convenience
-export type { ConversionOptions, ConversionPreset, HardwareAcceleration }
+export type { ConversionOptions, ConversionPreset, HardwareAcceleration, CompressToTargetSizeOptions }
 export { getExtractedAudioPath }
 
 // Re-export the export-format/quality catalog and types for consumers (e.g. the
@@ -523,6 +525,24 @@ export async function exportClipToFormat(
   const outputPath = await exportClipToFormatInternal(inputPath, getExportFormat(formatId), getQualityPreset(qualityId), framing, {
     outputDir
   })
+  return { outputPath, originalPath: inputPath }
+}
+
+/**
+ * Compresses a video to fit under a target file size (in MB), by computing
+ * the bitrate budget the video's duration allows and capping the encode with
+ * `-maxrate`/`-bufsize` (single-pass rate-capping — result lands close to,
+ * usually at or under, the target; not exact like true 2-pass encoding).
+ * @param inputPath - Path to the source video
+ * @param targetSizeMB - Desired maximum output size, in megabytes
+ * @param options - Preset/CRF, audio bitrate/mono, optional downscale (maxHeight), output dir/name
+ */
+export async function compressVideoFile(
+  inputPath: string,
+  targetSizeMB: number,
+  options?: CompressToTargetSizeOptions
+): Promise<ConversionResult> {
+  const outputPath = await compressVideoToTargetSize(inputPath, targetSizeMB, options)
   return { outputPath, originalPath: inputPath }
 }
 

@@ -4,6 +4,7 @@ import { useNavigation } from '../composables/useNavigation'
 import ChatFlow from '../modules/chat/ChatFlow.vue'
 import AgentsFlow from '../modules/agents/AgentsFlow.vue'
 import ConvertFlow from '../modules/convert/ConvertFlow.vue'
+import CompressFlow from '../modules/compress/CompressFlow.vue'
 import HistoryFlow from '../modules/history/HistoryFlow.vue'
 import SettingsFlow from '../modules/settings/SettingsFlow.vue'
 import { useSettings } from '../composables/useSettings'
@@ -30,6 +31,7 @@ onMounted(() => {
       <ChatFlow v-show="nav.state.active === 'chat'" />
       <AgentsFlow v-if="nav.state.active === 'agents'" />
       <ConvertFlow v-if="nav.state.active === 'convert'" />
+      <CompressFlow v-if="nav.state.active === 'compress'" />
       <HistoryFlow v-if="nav.state.active === 'history'" />
       <SettingsFlow v-if="nav.state.active === 'settings'" />
     </main>

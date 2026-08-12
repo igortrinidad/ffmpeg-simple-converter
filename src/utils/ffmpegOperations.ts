@@ -677,6 +677,101 @@ export async function exportClipToFormat(
   return outputPath
 }
 
+export interface CompressToTargetSizeOptions {
+  /** libx264 preset. Default: 'slow' (best quality for a given bitrate budget) */
+  preset?: ConversionPreset
+  /** CRF cap used alongside -maxrate/-bufsize. Default: 26 */
+  crf?: number
+  /** Audio bitrate in kbps, subtracted from the total budget before sizing video bitrate. Default: 128 */
+  audioBitrateKbps?: number
+  /** Downmix audio to mono to save bitrate budget. Default: false */
+  monoAudio?: boolean
+  /** Optional max output height (keeps aspect ratio, even width). e.g. 720 */
+  maxHeight?: number
+  outputDir?: string
+  outputName?: string
+}
+
+/**
+ * Gets the duration of a video file in seconds (ffprobe `format=duration`,
+ * codec-agnostic — same probe as `getAudioDuration`, kept as a separate
+ * export so call sites read correctly regardless of media type).
+ */
+export function getVideoDuration(inputPath: string): Promise<number> {
+  return getAudioDuration(inputPath)
+}
+
+/**
+ * Compresses a video to fit under a target file size, by computing the
+ * bitrate budget the file's duration allows (`targetSizeMB * 8192 / duration`,
+ * same formula as `size(KiB) * 8 = duration(s) * bitrate(kbps)`) and capping
+ * the video bitrate with `-maxrate`/`-bufsize` while `-crf` keeps quality from
+ * exceeding what's actually needed. This is single-pass rate-capping (not true
+ * 2-pass), so the result lands close to — usually at or under — the target,
+ * not exact.
+ */
+export async function compressVideoToTargetSize(
+  inputPath: string,
+  targetSizeMB: number,
+  options?: CompressToTargetSizeOptions
+): Promise<string> {
+  if (!(targetSizeMB > 0)) {
+    throw new Error(`Invalid target size: ${targetSizeMB}MB`)
+  }
+
+  const dir = options?.outputDir || path.dirname(inputPath)
+  const baseName = options?.outputName || `${path.basename(inputPath, path.extname(inputPath))}_compressed`
+  const outputPath = uniqueOutputPath(dir, baseName, '.mp4')
+
+  const preset = options?.preset || 'slow'
+  const crf = options?.crf ?? 26
+  const audioBitrateKbps = options?.audioBitrateKbps ?? 128
+  const monoAudio = options?.monoAudio ?? false
+
+  const duration = await getVideoDuration(inputPath)
+  if (!(duration > 0)) {
+    throw new Error(`Could not determine video duration for ${inputPath}`)
+  }
+
+  const totalBitrateKbps = Math.floor((targetSizeMB * 8192) / duration)
+  const videoBitrateKbps = totalBitrateKbps - audioBitrateKbps
+
+  if (videoBitrateKbps <= 0) {
+    throw new Error(
+      `Target size ${targetSizeMB}MB is too small for a ${duration.toFixed(1)}s video once audio (${audioBitrateKbps}kbps) is reserved.`
+    )
+  }
+
+  console.log(`\n📦 Comprimindo vídeo para até ${targetSizeMB}MB (${duration.toFixed(1)}s, ~${videoBitrateKbps}kbps de vídeo)...`)
+
+  const args = ['-i', inputPath]
+
+  if (options?.maxHeight) {
+    args.push('-vf', `scale=-2:${options.maxHeight}`)
+  }
+
+  args.push(
+    '-c:v', 'libx264',
+    '-preset', preset,
+    '-crf', String(crf),
+    '-maxrate', `${videoBitrateKbps}k`,
+    '-bufsize', `${videoBitrateKbps * 2}k`,
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', `${audioBitrateKbps}k`
+  )
+
+  if (monoAudio) {
+    args.push('-ac', '1')
+  }
+
+  args.push('-movflags', '+faststart', '-y', outputPath)
+
+  await runFfmpegCommand(args)
+  console.log(`✓ Compressão concluída: ${path.basename(outputPath)}`)
+  return outputPath
+}
+
 /**
  * Deletes a directory and all its contents
  */

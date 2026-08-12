@@ -5,6 +5,7 @@ import { registerFilesIpc } from './ipc/files'
 import { registerJobsIpc } from './ipc/jobs'
 import { registerHistoryIpc } from './ipc/history'
 import { registerFfmpegIpc } from './ipc/ffmpeg'
+import { registerCompressIpc } from './ipc/compress'
 import { registerHighlightChatIpc } from './ipc/highlightChat'
 import { registerAgentsIpc } from './ipc/agents'
 import { registerMediaProtocol } from './lib/mediaProtocol'
@@ -47,6 +48,7 @@ app.whenReady().then(() => {
   registerJobsIpc()
   registerHistoryIpc()
   registerFfmpegIpc()
+  registerCompressIpc()
   registerHighlightChatIpc()
   registerAgentsIpc()
 

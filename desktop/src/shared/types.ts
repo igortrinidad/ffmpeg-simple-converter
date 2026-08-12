@@ -142,6 +142,23 @@ export interface FfmpegStatus {
   error?: string
 }
 
+// --- Compress video ---------------------------------------------------------
+
+export interface CompressRequest {
+  inputPath: string
+  /** Desired maximum output size, in megabytes */
+  targetSizeMB: number
+  preset?: 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow'
+  /** Optional max output height (keeps aspect ratio). e.g. 720 */
+  maxHeight?: number
+  monoAudio?: boolean
+}
+
+export interface CompressResult {
+  outputPath: string
+  sizeBytes: number
+}
+
 // --- Highlight chat -------------------------------------------------------
 
 export interface HighlightChatOptions {
