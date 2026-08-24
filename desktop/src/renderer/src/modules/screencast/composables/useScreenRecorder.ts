@@ -16,7 +16,11 @@ type RecorderPhase = 'idle' | 'recording' | 'paused' | 'converting'
 
 const state = reactive({
   phase: 'idle' as RecorderPhase,
-  elapsedSeconds: 0
+  elapsedSeconds: 0,
+  // Set when a recording finishes saving — the flow watches this so it can
+  // advance to processing even when stop is triggered from the floating
+  // control window (which bypasses ScreencastFlow.stopRecording).
+  rawFilePath: null as string | null
 })
 
 const CAMERA_BUBBLE_MARGIN = 24
@@ -194,6 +198,7 @@ async function stop(): Promise<string> {
     mediaRecorder!.stop()
   })
 
+  state.rawFilePath = rawFilePath
   state.phase = 'converting'
   await window.api.screencast.closeControlWindow()
   return rawFilePath
@@ -224,6 +229,7 @@ function cleanupStreams(): void {
 function reset(): void {
   state.phase = 'idle'
   state.elapsedSeconds = 0
+  state.rawFilePath = null
 }
 
 export function useScreenRecorder() {

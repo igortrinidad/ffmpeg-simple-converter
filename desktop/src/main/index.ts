@@ -1,5 +1,17 @@
 import { app, session, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
+
+// Windows Graphics Capture (WGC) spams "wgc_capture_session.cc ProcessFrame
+// failed, using existing frame: 0x80004005" and can yield black/frozen frames,
+// especially when a captured window is hidden/occluded. Fall back to the legacy
+// DXGI/GDI capturer, which is more reliable for our screencast recorder.
+// Must run before app.whenReady().
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch(
+    'disable-features',
+    'AllowWgcScreenCapturer,AllowWgcWindowCapturer,AllowWgcDesktopCapturer,AllowWgcZeroHz'
+  )
+}
 import { registerConfigIpc } from './ipc/config'
 import { registerFilesIpc } from './ipc/files'
 import { registerJobsIpc } from './ipc/jobs'

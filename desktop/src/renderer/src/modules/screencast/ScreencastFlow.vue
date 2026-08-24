@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { JobRequest } from '@shared/types'
 import { useStepFlow } from '../../composables/useStepFlow'
 import { useScreenRecorder, type StartRecordingOptions } from './composables/useScreenRecorder'
@@ -29,11 +29,24 @@ async function onStart(options: StartRecordingOptions): Promise<void> {
   flow.goTo('recording')
 }
 
+// A stop can be triggered from the floating control window (which drives the
+// recorder directly, bypassing this component) or from the in-app button below.
+// Either way the recorder lands in 'converting' with the saved path, so advance
+// the flow off the shared state rather than off a single call's return value.
+watch(
+  () => recorder.state.phase,
+  (phase) => {
+    if (phase === 'converting' && recorder.state.rawFilePath) {
+      rawFilePath.value = recorder.state.rawFilePath
+      flow.goTo('processing')
+    }
+  }
+)
+
 async function stopRecording(): Promise<void> {
   stopError.value = ''
   try {
-    rawFilePath.value = await recorder.stop()
-    flow.goTo('processing')
+    await recorder.stop()
   } catch (err: any) {
     stopError.value = err?.message || 'Não foi possível finalizar a gravação'
   }
