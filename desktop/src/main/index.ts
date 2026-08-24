@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, session, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { registerConfigIpc } from './ipc/config'
 import { registerFilesIpc } from './ipc/files'
@@ -8,6 +8,7 @@ import { registerFfmpegIpc } from './ipc/ffmpeg'
 import { registerCompressIpc } from './ipc/compress'
 import { registerHighlightChatIpc } from './ipc/highlightChat'
 import { registerAgentsIpc } from './ipc/agents'
+import { registerScreencastIpc } from './ipc/screencast'
 import { registerMediaProtocol } from './lib/mediaProtocol'
 
 function createWindow(): void {
@@ -21,7 +22,10 @@ function createWindow(): void {
     title: 'Mediacript',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false
+      sandbox: false,
+      // Keeps the recording canvas's rAF loop and MediaRecorder running at
+      // full rate while this window is hidden during screencast recording.
+      backgroundThrottling: false
     }
   })
 
@@ -42,6 +46,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media')
+  })
+
   registerMediaProtocol()
   registerConfigIpc()
   registerFilesIpc()
@@ -51,6 +59,7 @@ app.whenReady().then(() => {
   registerCompressIpc()
   registerHighlightChatIpc()
   registerAgentsIpc()
+  registerScreencastIpc()
 
   createWindow()
 

@@ -22,7 +22,9 @@ import type {
   HighlightChatLogLine,
   ChatSessionSummary,
   HighlightChatResumeResult,
-  Agent
+  Agent,
+  ScreenSource,
+  ScreencastControlAction
 } from '../shared/types'
 
 const api = {
@@ -97,6 +99,21 @@ const api = {
     save: (input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<Agent> =>
       ipcRenderer.invoke('agents:save', input),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('agents:delete', id)
+  },
+
+  screencast: {
+    listSources: (): Promise<ScreenSource[]> => ipcRenderer.invoke('screencast:listSources'),
+    saveRawRecording: (buffer: ArrayBuffer): Promise<string> => ipcRenderer.invoke('screencast:saveRawRecording', buffer),
+    openControlWindow: (): Promise<void> => ipcRenderer.invoke('screencast:openControlWindow'),
+    closeControlWindow: (): Promise<void> => ipcRenderer.invoke('screencast:closeControlWindow'),
+    sendControlAction: (action: ScreencastControlAction): void => {
+      ipcRenderer.send('screencast:controlAction', action)
+    },
+    onControlAction: (callback: (action: ScreencastControlAction) => void): (() => void) => {
+      const listener = (_: unknown, action: ScreencastControlAction) => callback(action)
+      ipcRenderer.on('screencast:controlAction', listener)
+      return () => ipcRenderer.removeListener('screencast:controlAction', listener)
+    }
   }
 }
 

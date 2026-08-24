@@ -142,6 +142,16 @@ export interface FfmpegStatus {
   error?: string
 }
 
+// --- Screencast -------------------------------------------------------------
+
+export interface ScreenSource {
+  id: string
+  name: string
+  thumbnailDataUrl: string
+}
+
+export type ScreencastControlAction = 'pause' | 'resume' | 'stop'
+
 // --- Compress video ---------------------------------------------------------
 
 export interface CompressRequest {

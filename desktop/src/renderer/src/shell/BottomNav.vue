@@ -1,5 +1,5 @@
 <script setup lang="ts">
-export type ModuleId = 'chat' | 'agents' | 'convert' | 'compress' | 'history' | 'settings'
+export type ModuleId = 'chat' | 'agents' | 'convert' | 'compress' | 'screencast' | 'history' | 'settings'
 
 defineProps<{
   active: ModuleId
@@ -14,6 +14,7 @@ const ITEMS: { id: ModuleId; label: string; icon: string }[] = [
   { id: 'agents', label: 'Agents', icon: '🤖' },
   { id: 'convert', label: 'Convert', icon: '🔄' },
   { id: 'compress', label: 'Comprimir', icon: '📦' },
+  { id: 'screencast', label: 'Screencast', icon: '🎥' },
   { id: 'history', label: 'History', icon: '🕐' },
   { id: 'settings', label: 'Settings', icon: '⚙️' }
 ]
