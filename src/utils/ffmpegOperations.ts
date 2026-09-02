@@ -387,10 +387,7 @@ export async function convertAudio(
   return outputPath
 }
 
-/**
- * Gets the duration of an audio file in seconds
- */
-export async function getAudioDuration(inputPath: string): Promise<number> {
+function probeDuration(inputPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const ffprobe = spawn('ffprobe', [
       '-v', 'error',
@@ -417,6 +414,51 @@ export async function getAudioDuration(inputPath: string): Promise<number> {
       reject(err)
     })
   })
+}
+
+/**
+ * Determines duration by decoding the whole file and reading the last
+ * `time=` progress update ffmpeg prints to stderr. Slower than probing the
+ * container header, but works when that header has no duration to read —
+ * notably WebM files written by the browser `MediaRecorder` API, which never
+ * seeks back to finalize a duration and leave ffprobe reporting `N/A`.
+ */
+function decodeDuration(inputPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', ['-i', inputPath, '-f', 'null', '-'])
+
+    let stderr = ''
+    ffmpeg.stderr.on('data', (data) => {
+      stderr += data.toString()
+    })
+
+    ffmpeg.on('close', () => {
+      const matches = [...stderr.matchAll(/time=(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/g)]
+      const last = matches[matches.length - 1]
+      if (!last) {
+        reject(new Error(`Could not determine duration for ${inputPath}`))
+        return
+      }
+      const [, hours, minutes, seconds] = last
+      resolve(Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds))
+    })
+
+    ffmpeg.on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+/**
+ * Gets the duration of an audio file in seconds. Falls back to decoding the
+ * file when the container has no duration metadata to probe.
+ */
+export async function getAudioDuration(inputPath: string): Promise<number> {
+  const probed = await probeDuration(inputPath)
+  if (probed > 0) {
+    return probed
+  }
+  return decodeDuration(inputPath)
 }
 
 /**
