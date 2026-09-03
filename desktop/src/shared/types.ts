@@ -152,6 +152,18 @@ export interface ScreenSource {
 
 export type ScreencastControlAction = 'pause' | 'resume' | 'stop'
 
+export type CameraBubbleCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type CameraBubbleShape = 'circle' | 'rounded' | 'square'
+
+export interface CameraBubbleOptions {
+  corner: CameraBubbleCorner
+  shape: CameraBubbleShape
+  /** Bubble size as a ratio of the shorter canvas dimension */
+  sizeRatio: number
+  borderWidth: number
+  borderColor: string
+}
+
 // --- Compress video ---------------------------------------------------------
 
 export interface CompressRequest {

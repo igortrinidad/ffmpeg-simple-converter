@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { ScreenSource } from '@shared/types'
-import { useScreenRecorder, type RecordingDeviceOption, type StartRecordingOptions } from '../composables/useScreenRecorder'
+import type { CameraBubbleCorner, CameraBubbleShape, ScreenSource } from '@shared/types'
+import {
+  DEFAULT_CAMERA_BUBBLE,
+  useScreenRecorder,
+  type RecordingDeviceOption,
+  type StartRecordingOptions
+} from '../composables/useScreenRecorder'
 
 const emit = defineEmits<{
   continue: [options: StartRecordingOptions]
@@ -20,6 +25,25 @@ const selectedMicId = ref('')
 const loading = ref(true)
 const starting = ref(false)
 const error = ref('')
+
+const bubbleCorner = ref<CameraBubbleCorner>(DEFAULT_CAMERA_BUBBLE.corner)
+const bubbleShape = ref<CameraBubbleShape>(DEFAULT_CAMERA_BUBBLE.shape)
+const bubbleSizePercent = ref(Math.round(DEFAULT_CAMERA_BUBBLE.sizeRatio * 100))
+const bubbleBorderWidth = ref(DEFAULT_CAMERA_BUBBLE.borderWidth)
+const bubbleBorderColor = ref(DEFAULT_CAMERA_BUBBLE.borderColor)
+
+const cornerOptions: { value: CameraBubbleCorner; label: string }[] = [
+  { value: 'top-left', label: '↖ Superior esquerdo' },
+  { value: 'top-right', label: '↗ Superior direito' },
+  { value: 'bottom-left', label: '↙ Inferior esquerdo' },
+  { value: 'bottom-right', label: '↘ Inferior direito' }
+]
+
+const shapeOptions: { value: CameraBubbleShape; label: string }[] = [
+  { value: 'circle', label: '● Bola' },
+  { value: 'rounded', label: '▢ Arredondado' },
+  { value: 'square', label: '■ Quadrado' }
+]
 
 async function loadSources(): Promise<void> {
   sources.value = await recorder.listScreenSources()
@@ -51,7 +75,16 @@ async function start(): Promise<void> {
     emit('continue', {
       sourceId: selectedSourceId.value,
       cameraDeviceId: cameraEnabled.value ? selectedCameraId.value || undefined : undefined,
-      micDeviceId: micEnabled.value ? selectedMicId.value || undefined : undefined
+      micDeviceId: micEnabled.value ? selectedMicId.value || undefined : undefined,
+      cameraBubble: cameraEnabled.value
+        ? {
+            corner: bubbleCorner.value,
+            shape: bubbleShape.value,
+            sizeRatio: bubbleSizePercent.value / 100,
+            borderWidth: bubbleBorderWidth.value,
+            borderColor: bubbleBorderColor.value
+          }
+        : undefined
     })
   } catch (err: any) {
     error.value = err?.message || 'Não foi possível iniciar a gravação'
@@ -95,6 +128,63 @@ async function start(): Promise<void> {
         <select v-if="cameraEnabled" v-model="selectedCameraId" class="device-select">
           <option v-for="cam in cameras" :key="cam.deviceId" :value="cam.deviceId">{{ cam.label }}</option>
         </select>
+      </div>
+
+      <div v-if="cameraEnabled" class="section bubble-section">
+        <span class="section-title">Aparência da câmera</span>
+
+        <div class="bubble-row">
+          <span class="bubble-label">Posição</span>
+          <div class="corner-grid">
+            <button
+              v-for="opt in cornerOptions"
+              :key="opt.value"
+              type="button"
+              class="chip"
+              :class="{ active: bubbleCorner === opt.value }"
+              @click="bubbleCorner = opt.value"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="bubble-row">
+          <span class="bubble-label">Formato</span>
+          <div class="chip-row">
+            <button
+              v-for="opt in shapeOptions"
+              :key="opt.value"
+              type="button"
+              class="chip"
+              :class="{ active: bubbleShape === opt.value }"
+              @click="bubbleShape = opt.value"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="bubble-row">
+          <span class="bubble-label">Tamanho ({{ bubbleSizePercent }}%)</span>
+          <input v-model.number="bubbleSizePercent" type="range" min="8" max="35" step="1" class="bubble-slider" />
+        </div>
+
+        <div class="bubble-row">
+          <span class="bubble-label">Borda</span>
+          <div class="border-controls">
+            <input
+              v-model.number="bubbleBorderWidth"
+              type="range"
+              min="0"
+              max="10"
+              step="1"
+              class="bubble-slider"
+            />
+            <span class="border-width-value">{{ bubbleBorderWidth }}px</span>
+            <input v-model="bubbleBorderColor" type="color" class="color-input" :disabled="bubbleBorderWidth === 0" />
+          </div>
+        </div>
       </div>
 
       <div class="section toggle-row">
@@ -212,6 +302,81 @@ async function start(): Promise<void> {
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 12px;
+}
+
+.bubble-section {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  padding: 12px;
+  gap: 12px;
+}
+
+.bubble-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.corner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bubble-slider {
+  width: 100%;
+}
+
+.border-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.border-controls .bubble-slider {
+  flex: 1;
+}
+
+.border-width-value {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 32px;
+}
+
+.color-input {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
 }
 
 .error-text {
