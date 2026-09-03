@@ -15,6 +15,8 @@ export interface OperationDefinition {
    * `needsHighlightOptions`'s upfront prompt/margin form.
    */
   startsHighlightChat?: boolean
+  /** True for the operation that applies a generated subtitle to the video (hardsub/softsub) — needs the Subtitle module's mode picker, not the Convert wizard. */
+  needsSubtitleOptions?: boolean
 }
 
 export const OPERATIONS: OperationDefinition[] = [
@@ -62,6 +64,16 @@ export const OPERATIONS: OperationDefinition[] = [
     steps: ['Extrair áudio', 'Gerar legendas'],
     needsConversionOptions: false,
     needsHighlightOptions: false
+  },
+  {
+    id: 'video-apply-subtitles',
+    label: 'Aplicar legendas ao vídeo (hardsub/softsub)',
+    description: 'Transcreve o vídeo e grava as legendas nele — embutidas no vídeo (hardsub) ou como faixa separada que pode ser ligada/desligada (softsub).',
+    requiresType: 'video',
+    steps: ['Extrair áudio', 'Gerar legendas', 'Aplicar legendas'],
+    needsConversionOptions: false,
+    needsHighlightOptions: false,
+    needsSubtitleOptions: true
   },
   {
     id: 'video-highlights',

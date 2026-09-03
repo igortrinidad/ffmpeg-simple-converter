@@ -6,6 +6,7 @@ import AgentsFlow from '../modules/agents/AgentsFlow.vue'
 import ConvertFlow from '../modules/convert/ConvertFlow.vue'
 import CompressFlow from '../modules/compress/CompressFlow.vue'
 import ScreencastFlow from '../modules/screencast/ScreencastFlow.vue'
+import SubtitleFlow from '../modules/subtitle/SubtitleFlow.vue'
 import HistoryFlow from '../modules/history/HistoryFlow.vue'
 import SettingsFlow from '../modules/settings/SettingsFlow.vue'
 import { useSettings } from '../composables/useSettings'
@@ -34,6 +35,7 @@ onMounted(() => {
       <ConvertFlow v-if="nav.state.active === 'convert'" />
       <CompressFlow v-if="nav.state.active === 'compress'" />
       <ScreencastFlow v-if="nav.state.active === 'screencast'" />
+      <SubtitleFlow v-if="nav.state.active === 'subtitle'" />
       <HistoryFlow v-if="nav.state.active === 'history'" />
       <SettingsFlow v-if="nav.state.active === 'settings'" />
     </main>

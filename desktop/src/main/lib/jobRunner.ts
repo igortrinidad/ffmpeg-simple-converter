@@ -14,6 +14,7 @@ import {
   cutHighlightClipsWithAssets,
   createOutputFolderForFile,
   exportClipToFormat,
+  applySubtitlesToVideo,
   getStoredConfig
 } from 'mediacript'
 import type { TranscriptSegment, HighlightSegment } from 'mediacript'
@@ -107,6 +108,7 @@ async function runJobForFile(
   let audioFile: string | undefined
   let transcriptSegments: TranscriptSegment[] | undefined
   let highlights: HighlightSegment[] | undefined
+  let srtFilePath: string | undefined
 
   // Highlight runs generate many files (audio, subtitles, clips, thumbnails),
   // so they get grouped into a folder named after the input file.
@@ -201,6 +203,7 @@ async function runJobForFile(
           }
           console.log(`\n✓ Legendas já existiam, reaproveitando: ${existingSrtPath}`)
           transcriptSegments = segments
+          srtFilePath = existingSrtPath
           outputFiles.push(existingSrtPath)
           onTranscriptReady?.(jobId, filePath, segments, audioFile ?? currentFile)
           return
@@ -214,8 +217,21 @@ async function runJobForFile(
         transcriptSegments = transcription.segments
         // Named after the original input file (nicer than the intermediate audio file)
         const srtPath = saveSrtFile(transcription.segments, filePath, outputDir)
+        srtFilePath = srtPath
         outputFiles.push(srtPath)
         onTranscriptReady?.(jobId, filePath, transcription.segments, audioFile ?? fileToTranscribe)
+      })
+    }
+
+    if (ok && operation.steps.includes('Aplicar legendas')) {
+      ok = await runStep('Aplicar legendas', async () => {
+        if (!srtFilePath) {
+          throw new Error('Nenhum arquivo de legenda disponível para aplicar')
+        }
+        const mode = request.subtitleOptions?.mode ?? 'hardsub'
+        const result = await applySubtitlesToVideo(filePath, srtFilePath, mode, outputDir)
+        outputFiles.push(result.outputPath)
+        videoOutputFiles.push(result.outputPath)
       })
     }
 
@@ -291,6 +307,7 @@ async function runJobForFile(
     error: ok ? undefined : steps.find((s) => s.status === 'failed')?.error,
     conversionOptions: request.conversionOptions,
     highlightOptions: request.highlightOptions,
-    exportOptions: request.exportOptions
+    exportOptions: request.exportOptions,
+    subtitleOptions: request.subtitleOptions
   })
 }

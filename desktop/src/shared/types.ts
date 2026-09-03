@@ -6,7 +6,8 @@ import type {
   TranscriptSegment as MediacriptTranscriptSegment,
   ExportFormatId as MediacriptExportFormatId,
   QualityPresetId as MediacriptQualityPresetId,
-  FramingMode as MediacriptFramingMode
+  FramingMode as MediacriptFramingMode,
+  SubtitleMode as MediacriptSubtitleMode
 } from 'mediacript'
 
 // Reuse the root project's types (same shared config.json) instead of
@@ -19,11 +20,16 @@ export type TranscriptSegment = MediacriptTranscriptSegment
 export type ExportFormatId = MediacriptExportFormatId
 export type QualityPresetId = MediacriptQualityPresetId
 export type FramingMode = MediacriptFramingMode
+export type SubtitleMode = MediacriptSubtitleMode
 
 export interface ExportOptionsInput {
   formats: ExportFormatId[]
   quality: QualityPresetId
   framing: FramingMode
+}
+
+export interface SubtitleOptionsInput {
+  mode: SubtitleMode
 }
 
 export interface Agent {
@@ -51,6 +57,7 @@ export type OperationId =
   | 'video-convert'
   | 'video-extract'
   | 'video-subtitles'
+  | 'video-apply-subtitles'
   | 'video-highlights'
   | 'video-highlights-chat'
   | 'audio-convert-transcribe'
@@ -79,6 +86,7 @@ export interface JobRequest {
   highlightOptions?: HighlightOptionsInput
   /** Extra platform formats (16:9, 9:16, Reels, TikTok, ...) to also export the final video output(s) into */
   exportOptions?: ExportOptionsInput
+  subtitleOptions?: SubtitleOptionsInput
 }
 
 export type JobStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -125,6 +133,7 @@ export interface HistoryEntry {
   conversionOptions?: ConversionOptionsInput
   highlightOptions?: HighlightOptionsInput
   exportOptions?: ExportOptionsInput
+  subtitleOptions?: SubtitleOptionsInput
 }
 
 /** What's needed to re-open the wizard pre-filled from a past history entry */
@@ -134,6 +143,7 @@ export interface RetryRequest {
   conversionOptions?: ConversionOptionsInput
   highlightOptions?: HighlightOptionsInput
   exportOptions?: ExportOptionsInput
+  subtitleOptions?: SubtitleOptionsInput
 }
 
 export interface FfmpegStatus {

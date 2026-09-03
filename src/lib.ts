@@ -20,10 +20,13 @@ import {
   cutVideoSegment,
   exportClipToFormat as exportClipToFormatInternal,
   compressVideoToTargetSize,
+  applyHardSubtitles,
+  applySoftSubtitles,
   type ConversionOptions,
   type ConversionPreset,
   type HardwareAcceleration,
-  type CompressToTargetSizeOptions
+  type CompressToTargetSizeOptions,
+  type SubtitleMode
 } from './utils/ffmpegOperations.js'
 import {
   EXPORT_FORMATS,
@@ -95,6 +98,10 @@ export interface SubtitlesResult {
   text: string
 }
 
+export interface SubtitleApplyResult extends ConversionResult {
+  mode: SubtitleMode
+}
+
 export interface HighlightAIOptions {
   /** Which LLM provider to use to pick the best moments */
   provider: AIProviderName
@@ -110,6 +117,10 @@ export interface HighlightAIOptions {
 // Re-export conversion types for convenience
 export type { ConversionOptions, ConversionPreset, HardwareAcceleration, CompressToTargetSizeOptions }
 export { getExtractedAudioPath }
+
+// Re-export for consumers (e.g. the desktop app's Subtitle module) that let
+// the user choose how a generated .srt gets applied to the video
+export type { SubtitleMode }
 
 // Re-export the export-format/quality catalog and types for consumers (e.g. the
 // desktop app's Agents/Convert flows) that let the user pick a target platform
@@ -353,6 +364,28 @@ export async function generateSubtitles(
     segments: result.segments,
     text: result.text
   }
+}
+
+/**
+ * Applies subtitles to a video file — burned into the frames (hardsub, via
+ * ffmpeg's libass `subtitles` filter; always re-encodes) or muxed in as a
+ * separate, toggleable stream (softsub, `mov_text`; stream-copy, but
+ * requires the source's existing codecs to already be MP4-compatible).
+ * @param videoPath - Path to the source video
+ * @param srtPath - Path to the .srt file to apply (e.g. from generateSubtitles)
+ * @param mode - 'hardsub' (burned in) or 'softsub' (separate track)
+ * @param outputDir - Optional output directory (defaults to the video's directory)
+ */
+export async function applySubtitlesToVideo(
+  videoPath: string,
+  srtPath: string,
+  mode: SubtitleMode,
+  outputDir?: string
+): Promise<SubtitleApplyResult> {
+  const outputPath = mode === 'hardsub'
+    ? await applyHardSubtitles(videoPath, srtPath, { outputDir })
+    : await applySoftSubtitles(videoPath, srtPath, { outputDir })
+  return { outputPath, originalPath: videoPath, mode }
 }
 
 /**

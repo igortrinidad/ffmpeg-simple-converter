@@ -60,10 +60,11 @@ function retryJob(entry: DeepReadonly<HistoryEntry>): void {
     highlightOptions: entry.highlightOptions ? { ...entry.highlightOptions } : undefined,
     exportOptions: entry.exportOptions
       ? { formats: [...entry.exportOptions.formats], quality: entry.exportOptions.quality, framing: entry.exportOptions.framing }
-      : undefined
+      : undefined,
+    subtitleOptions: entry.subtitleOptions ? { ...entry.subtitleOptions } : undefined
   }
   retry.setRetry(request)
-  nav.go('convert')
+  nav.go(entry.operation === 'video-apply-subtitles' ? 'subtitle' : 'convert')
 }
 
 function continueSession(session: DeepReadonly<ChatSessionSummary>): void {

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals'
-import { convertVideo, extractAudio, convertAudio, uniqueOutputPath } from '../../src/utils/ffmpegOperations.js'
+import { convertVideo, extractAudio, convertAudio, uniqueOutputPath, escapeSubtitlesFilterPath } from '../../src/utils/ffmpegOperations.js'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -56,29 +56,53 @@ describe('FFmpeg Operations', () => {
     })
   })
 
+  describe('escapeSubtitlesFilterPath', () => {
+    test('escapes a Windows drive-letter path with backslashes', () => {
+      const result = escapeSubtitlesFilterPath('C:\\Users\\test\\subs.srt')
+      expect(result).toBe("'C\\:/Users/test/subs.srt'")
+    })
+
+    test('wraps a path with spaces and commas without altering them', () => {
+      const result = escapeSubtitlesFilterPath('C:\\test dir, with comma\\sub file.srt')
+      expect(result).toBe("'C\\:/test dir, with comma/sub file.srt'")
+    })
+
+    test('wraps a unix-style path (no colon/backslash) unchanged aside from quoting', () => {
+      const result = escapeSubtitlesFilterPath('/home/user/subs.srt')
+      expect(result).toBe("'/home/user/subs.srt'")
+    })
+
+    // Note: this function intentionally does not attempt to escape a literal
+    // "'" in the path — ffmpeg's `subtitles` filter mishandles it no matter
+    // the escaping convention used. Callers must stage untrusted paths at a
+    // controlled, quote-free temp path first (see applyHardSubtitles).
+  })
+
   describe('convertVideo', () => {
     test('should convert video with default options', async () => {
-      const result = await convertVideo(testVideoPath, testDir)
-      
+      const result = await convertVideo(testVideoPath, { outputDir: testDir })
+
       expect(fs.existsSync(result)).toBe(true)
       expect(result).toContain('_converted.mp4')
-      
+
       const stats = fs.statSync(result)
       expect(stats.size).toBeGreaterThan(0)
     }, 120000)
 
     test('should convert video with fast preset', async () => {
-      const result = await convertVideo(testVideoPath, testDir, {
+      const result = await convertVideo(testVideoPath, {
+        outputDir: testDir,
         preset: 'fast',
         crf: 23
       })
-      
+
       expect(fs.existsSync(result)).toBe(true)
       expect(result).toContain('_converted')
     }, 120000)
 
     test('should convert video with custom ffmpeg params', async () => {
-      const result = await convertVideo(testVideoPath, testDir, {
+      const result = await convertVideo(testVideoPath, {
+        outputDir: testDir,
         customParams: [
           '-c:v', 'libx264',
           '-preset', 'fast',
@@ -88,7 +112,7 @@ describe('FFmpeg Operations', () => {
           '-b:a', '128k'
         ]
       })
-      
+
       expect(fs.existsSync(result)).toBe(true)
     }, 120000)
   })

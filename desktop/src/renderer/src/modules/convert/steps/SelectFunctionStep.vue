@@ -13,8 +13,11 @@ const emit = defineEmits<{
 }>()
 
 // Convert only covers the non-conversational operations — the Chat module owns
-// the ones that hand off into the highlight conversation.
-const availableOperations = computed(() => operationsForType(props.fileKind).filter((op) => !op.startsHighlightChat))
+// the ones that hand off into the highlight conversation, and the Subtitle
+// module owns the one that needs the hardsub/softsub mode picker.
+const availableOperations = computed(() =>
+  operationsForType(props.fileKind).filter((op) => !op.startsHighlightChat && !op.needsSubtitleOptions)
+)
 </script>
 
 <template>

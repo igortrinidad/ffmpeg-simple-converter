@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 import type { ExportFormatDefinition, FramingMode, QualityPresetDefinition } from './exportFormats.js'
 
 export type ConversionPreset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow'
@@ -821,5 +822,122 @@ export function deleteDirectory(dirPath: string): void {
   if (fs.existsSync(dirPath)) {
     fs.rmSync(dirPath, { recursive: true, force: true })
   }
+}
+
+export type SubtitleMode = 'hardsub' | 'softsub'
+
+/**
+ * Escapes a filesystem path for use as the `filename` value of ffmpeg's
+ * `subtitles` video filter (e.g. `-vf "subtitles=<escaped path>"`).
+ *
+ * The filter parses its argument through the filtergraph syntax (where `:`
+ * separates option key=value pairs and `,`/`;` separate filters), so a
+ * Windows path's drive-letter colon and backslashes need escaping. Converting
+ * backslashes to forward slashes first sidesteps backslash-escaping
+ * ambiguity entirely (ffmpeg/Windows both accept `/` in paths).
+ *
+ * Deliberately does NOT attempt to escape a literal `'` in the path — the
+ * `subtitles` filter re-parses its filename through a second, internal
+ * option parser that mishandles an escaped quote no matter the escaping
+ * convention used, silently corrupting the filename. Callers must ensure the
+ * path they pass here never contains a `'` (e.g. by staging the file at a
+ * controlled temp path first — see `applyHardSubtitles`).
+ */
+export function escapeSubtitlesFilterPath(filePath: string): string {
+  const forwardSlashed = filePath.replace(/\\/g, '/')
+  const colonEscaped = forwardSlashed.replace(/:/g, '\\:')
+  return `'${colonEscaped}'`
+}
+
+/**
+ * Burns subtitles into the video frames (hardsub) using ffmpeg's libass-based
+ * `subtitles` filter. Always re-encodes video (and audio, to sidestep any
+ * source audio codec incompatibility) since the filter requires decoding and
+ * re-rendering every frame.
+ */
+export async function applyHardSubtitles(
+  inputPath: string,
+  srtPath: string,
+  options?: { outputDir?: string; outputName?: string }
+): Promise<string> {
+  const dir = options?.outputDir || path.dirname(inputPath)
+  const baseName = options?.outputName || `${path.basename(inputPath, path.extname(inputPath))}_hardsub`
+  const outputPath = uniqueOutputPath(dir, baseName, '.mp4')
+
+  console.log(`\n📝 Gravando legendas no vídeo (hardsub)...`)
+
+  // Stage the .srt at a path under our control, at a fixed safe filename —
+  // see escapeSubtitlesFilterPath's doc comment for why the original path
+  // (which may contain a ') can't be passed to the filter directly.
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediacript-subs-'))
+  const stagedSrtPath = path.join(stagingDir, 'subs.srt')
+
+  try {
+    fs.copyFileSync(srtPath, stagedSrtPath)
+    const escapedSrt = escapeSubtitlesFilterPath(stagedSrtPath)
+
+    const args = [
+      '-i', inputPath,
+      '-vf', `subtitles=${escapedSrt}`,
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-movflags', '+faststart',
+      '-y', outputPath
+    ]
+
+    await runFfmpegCommand(args)
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true })
+  }
+
+  console.log(`✓ Legendas gravadas no vídeo: ${path.basename(outputPath)}`)
+  return outputPath
+}
+
+/**
+ * Adds subtitles as a separate, toggleable stream (softsub) via `mov_text`,
+ * stream-copying video/audio instead of re-encoding — fast, but requires the
+ * source's existing codecs to already be MP4-compatible.
+ */
+export async function applySoftSubtitles(
+  inputPath: string,
+  srtPath: string,
+  options?: { outputDir?: string; outputName?: string }
+): Promise<string> {
+  const dir = options?.outputDir || path.dirname(inputPath)
+  const baseName = options?.outputName || `${path.basename(inputPath, path.extname(inputPath))}_softsub`
+  const outputPath = uniqueOutputPath(dir, baseName, '.mp4')
+
+  console.log(`\n📝 Adicionando legenda como faixa separada (softsub)...`)
+
+  const args = [
+    '-i', inputPath,
+    '-i', srtPath,
+    '-map', '0', '-map', '1',
+    '-c', 'copy',
+    '-c:s', 'mov_text',
+    '-movflags', '+faststart',
+    '-y', outputPath
+  ]
+
+  try {
+    await runFfmpegCommand(args)
+  } catch (error) {
+    const message = (error as Error).message || ''
+    if (/codec not currently supported in container|Could not find tag for codec/i.test(message)) {
+      throw new Error(
+        'O vídeo original usa um codec incompatível com legenda "softsub" em MP4. ' +
+          'Tente o modo "legenda embutida" (hardsub), ou converta o vídeo primeiro antes de aplicar a legenda.'
+      )
+    }
+    throw error
+  }
+
+  console.log(`✓ Legenda adicionada como faixa separada: ${path.basename(outputPath)}`)
+  return outputPath
 }
 
