@@ -162,6 +162,11 @@ export interface ScreenSource {
 
 export type ScreencastControlAction = 'pause' | 'resume' | 'stop'
 
+export interface ScreencastControlWindowOptions {
+  micEnabled: boolean
+  cameraEnabled: boolean
+}
+
 export type CameraBubbleCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 export type CameraBubbleShape = 'circle' | 'rounded' | 'square'
 

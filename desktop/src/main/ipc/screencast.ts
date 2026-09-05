@@ -1,7 +1,7 @@
 import { ipcMain, desktopCapturer, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'path'
 import { saveRawRecording } from '../lib/screencastStore'
-import type { ScreenSource, ScreencastControlAction } from '../../shared/types'
+import type { ScreenSource, ScreencastControlAction, ScreencastControlWindowOptions } from '../../shared/types'
 
 let controlWindow: BrowserWindow | null = null
 let mainWindow: BrowserWindow | null = null
@@ -14,9 +14,9 @@ function windowFromEvent(event: IpcMainInvokeEvent): BrowserWindow {
   return window
 }
 
-function createControlWindow(): BrowserWindow {
+function createControlWindow(options: ScreencastControlWindowOptions): BrowserWindow {
   const window = new BrowserWindow({
-    width: 260,
+    width: 320,
     height: 70,
     frame: false,
     transparent: true,
@@ -31,10 +31,11 @@ function createControlWindow(): BrowserWindow {
   })
   window.setAlwaysOnTop(true, 'screen-saver')
 
+  const query = `mic=${options.micEnabled ? '1' : '0'}&cam=${options.cameraEnabled ? '1' : '0'}`
   if (process.env['ELECTRON_RENDERER_URL']) {
-    window.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/screencast-control`)
+    window.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/screencast-control?${query}`)
   } else {
-    window.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/screencast-control' })
+    window.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/screencast-control?${query}` })
   }
 
   window.on('closed', () => {
@@ -61,9 +62,9 @@ export function registerScreencastIpc(): void {
     return saveRawRecording(Buffer.from(buffer))
   })
 
-  ipcMain.handle('screencast:openControlWindow', (event): void => {
+  ipcMain.handle('screencast:openControlWindow', (event, options: ScreencastControlWindowOptions): void => {
     mainWindow = windowFromEvent(event)
-    controlWindow = createControlWindow()
+    controlWindow = createControlWindow(options)
     mainWindow.hide()
   })
 

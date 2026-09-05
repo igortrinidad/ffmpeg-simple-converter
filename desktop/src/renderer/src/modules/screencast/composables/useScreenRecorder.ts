@@ -224,7 +224,10 @@ async function startRecording(options: StartRecordingOptions): Promise<void> {
     else if (action === 'stop') void stop()
   })
 
-  await window.api.screencast.openControlWindow()
+  await window.api.screencast.openControlWindow({
+    micEnabled: !!micStream,
+    cameraEnabled: !!cameraStream
+  })
 }
 
 function pause(): void {

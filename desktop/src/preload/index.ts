@@ -24,7 +24,8 @@ import type {
   HighlightChatResumeResult,
   Agent,
   ScreenSource,
-  ScreencastControlAction
+  ScreencastControlAction,
+  ScreencastControlWindowOptions
 } from '../shared/types'
 
 const api = {
@@ -104,7 +105,8 @@ const api = {
   screencast: {
     listSources: (): Promise<ScreenSource[]> => ipcRenderer.invoke('screencast:listSources'),
     saveRawRecording: (buffer: ArrayBuffer): Promise<string> => ipcRenderer.invoke('screencast:saveRawRecording', buffer),
-    openControlWindow: (): Promise<void> => ipcRenderer.invoke('screencast:openControlWindow'),
+    openControlWindow: (options: ScreencastControlWindowOptions): Promise<void> =>
+      ipcRenderer.invoke('screencast:openControlWindow', options),
     closeControlWindow: (): Promise<void> => ipcRenderer.invoke('screencast:closeControlWindow'),
     sendControlAction: (action: ScreencastControlAction): void => {
       ipcRenderer.send('screencast:controlAction', action)

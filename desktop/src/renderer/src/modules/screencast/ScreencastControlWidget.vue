@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+const hashQuery = window.location.hash.split('?')[1] || ''
+const params = new URLSearchParams(hashQuery)
+const micEnabled = params.get('mic') === '1'
+const cameraEnabled = params.get('cam') === '1'
+
 const paused = ref(false)
 const elapsedSeconds = ref(0)
 let timerHandle: ReturnType<typeof setInterval> | null = null
@@ -34,6 +39,20 @@ function stop(): void {
   <div class="control-bar">
     <span class="rec-dot" :class="{ paused }" />
     <span class="timer">{{ formattedTime }}</span>
+    <span
+      class="device-icon"
+      :class="micEnabled ? 'device-on' : 'device-off'"
+      :title="micEnabled ? 'Microfone ativado' : 'Microfone desativado'"
+    >
+      🎤
+    </span>
+    <span
+      class="device-icon"
+      :class="cameraEnabled ? 'device-on' : 'device-off'"
+      :title="cameraEnabled ? 'Câmera ativada' : 'Câmera desativada'"
+    >
+      📷
+    </span>
     <button class="ctrl-btn" type="button" :title="paused ? 'Retomar' : 'Pausar'" @click="togglePause">
       {{ paused ? '▶' : '⏸' }}
     </button>
@@ -80,6 +99,31 @@ function stop(): void {
   font-weight: 600;
   font-size: 13px;
   flex: 1;
+}
+
+.device-icon {
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.device-icon.device-on {
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+  box-shadow: 0 0 0 1px var(--success) inset;
+}
+
+.device-icon.device-off {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  box-shadow: 0 0 0 1px var(--danger) inset;
+  opacity: 0.55;
+  filter: grayscale(1);
 }
 
 .ctrl-btn {
