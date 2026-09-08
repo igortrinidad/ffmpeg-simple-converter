@@ -12,6 +12,7 @@ const flow = useStepFlow(stepOrder)
 
 const rawFilePath = ref<string | null>(null)
 const stopError = ref('')
+const confirmingCancel = ref(false)
 
 // The raw MediaRecorder .webm is large and inefficient, so we optimize it with
 // the compress pipeline: re-encode to a size-capped H.264 mp4 downscaled to
@@ -42,6 +43,10 @@ watch(
       rawFilePath.value = recorder.state.rawFilePath
       flow.goTo('processing')
       void optimize(recorder.state.rawFilePath, recorder.state.elapsedSeconds)
+    } else if (phase === 'idle' && flow.currentStep.value !== 'setup') {
+      // Recording was cancelled (from the floating control window or here) —
+      // it never passed through 'converting', so skip straight back to setup.
+      resetFlow()
     }
   }
 )
@@ -77,6 +82,11 @@ async function stopRecording(): Promise<void> {
   }
 }
 
+async function cancelRecording(): Promise<void> {
+  confirmingCancel.value = false
+  await recorder.cancel()
+}
+
 function formatMB(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
@@ -93,6 +103,7 @@ function resetFlow(): void {
   recorder.reset()
   rawFilePath.value = null
   stopError.value = ''
+  confirmingCancel.value = false
   compressError.value = ''
   compressResult.value = null
   flow.reset()
@@ -105,8 +116,29 @@ function resetFlow(): void {
 
     <div v-else-if="flow.currentStep.value === 'recording'" class="recording-notice">
       <p>🔴 Gravando… use o painel flutuante para pausar/parar.</p>
-      <p class="hint">Se a janela principal reapareceu, você também pode parar por aqui.</p>
-      <button class="btn btn-primary" type="button" @click="stopRecording">■ Parar gravação</button>
+      <p class="hint">Se a janela principal reapareceu, você também pode parar ou cancelar por aqui.</p>
+
+      <template v-if="!confirmingCancel">
+        <div class="recording-actions">
+          <button class="btn btn-primary" type="button" @click="stopRecording">■ Parar gravação</button>
+          <button
+            class="btn btn-ghost cancel-btn"
+            type="button"
+            title="Cancelar gravação"
+            @click="confirmingCancel = true"
+          >
+            ✕ Cancelar
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <p class="confirm-text">Cancelar e descartar esta gravação? Essa ação não pode ser desfeita.</p>
+        <div class="recording-actions">
+          <button class="btn btn-danger" type="button" @click="cancelRecording">Sim, cancelar</button>
+          <button class="btn btn-ghost" type="button" @click="confirmingCancel = false">Voltar</button>
+        </div>
+      </template>
+
       <p v-if="stopError" class="error-text">{{ stopError }}</p>
     </div>
 
@@ -163,6 +195,31 @@ function resetFlow(): void {
 .error-text {
   color: var(--danger);
   font-size: 12px;
+}
+
+.recording-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cancel-btn {
+  color: var(--danger);
+}
+
+.confirm-text {
+  color: var(--danger);
+  font-size: 13px;
+  max-width: 380px;
+}
+
+.btn-danger {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
 }
 
 .title-success {

@@ -222,6 +222,7 @@ async function startRecording(options: StartRecordingOptions): Promise<void> {
     if (action === 'pause') pause()
     else if (action === 'resume') resume()
     else if (action === 'stop') void stop()
+    else if (action === 'cancel') void cancel()
   })
 
   await window.api.screencast.openControlWindow({
@@ -267,6 +268,20 @@ async function stop(): Promise<string> {
   return rawFilePath
 }
 
+/** Stops recording and discards everything captured so far — no save, no processing. */
+async function cancel(): Promise<void> {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    await new Promise<void>((resolve) => {
+      mediaRecorder!.onstop = () => resolve()
+      mediaRecorder!.stop()
+    })
+  }
+  chunks = []
+  cleanupStreams()
+  reset()
+  await window.api.screencast.closeControlWindow()
+}
+
 function cleanupStreams(): void {
   if (rafHandle !== null) {
     cancelAnimationFrame(rafHandle)
@@ -304,6 +319,7 @@ export function useScreenRecorder() {
     pause,
     resume,
     stop,
+    cancel,
     reset
   }
 }

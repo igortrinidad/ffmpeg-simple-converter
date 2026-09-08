@@ -160,7 +160,7 @@ export interface ScreenSource {
   thumbnailDataUrl: string
 }
 
-export type ScreencastControlAction = 'pause' | 'resume' | 'stop'
+export type ScreencastControlAction = 'pause' | 'resume' | 'stop' | 'cancel'
 
 export interface ScreencastControlWindowOptions {
   micEnabled: boolean

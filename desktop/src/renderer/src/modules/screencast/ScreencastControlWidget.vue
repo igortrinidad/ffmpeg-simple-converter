@@ -8,6 +8,7 @@ const cameraEnabled = params.get('cam') === '1'
 
 const paused = ref(false)
 const elapsedSeconds = ref(0)
+const confirmingCancel = ref(false)
 let timerHandle: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
@@ -33,30 +34,51 @@ function stop(): void {
   if (timerHandle) clearInterval(timerHandle)
   window.api.screencast.sendControlAction('stop')
 }
+
+function requestCancel(): void {
+  confirmingCancel.value = true
+}
+
+function abortCancelRequest(): void {
+  confirmingCancel.value = false
+}
+
+function confirmCancel(): void {
+  if (timerHandle) clearInterval(timerHandle)
+  window.api.screencast.sendControlAction('cancel')
+}
 </script>
 
 <template>
   <div class="control-bar">
-    <span class="rec-dot" :class="{ paused }" />
-    <span class="timer">{{ formattedTime }}</span>
-    <span
-      class="device-icon"
-      :class="micEnabled ? 'device-on' : 'device-off'"
-      :title="micEnabled ? 'Microfone ativado' : 'Microfone desativado'"
-    >
-      🎤
-    </span>
-    <span
-      class="device-icon"
-      :class="cameraEnabled ? 'device-on' : 'device-off'"
-      :title="cameraEnabled ? 'Câmera ativada' : 'Câmera desativada'"
-    >
-      📷
-    </span>
-    <button class="ctrl-btn" type="button" :title="paused ? 'Retomar' : 'Pausar'" @click="togglePause">
-      {{ paused ? '▶' : '⏸' }}
-    </button>
-    <button class="ctrl-btn stop-btn" type="button" title="Parar" @click="stop">■</button>
+    <template v-if="!confirmingCancel">
+      <span class="rec-dot" :class="{ paused }" />
+      <span class="timer">{{ formattedTime }}</span>
+      <span
+        class="device-icon"
+        :class="micEnabled ? 'device-on' : 'device-off'"
+        :title="micEnabled ? 'Microfone ativado' : 'Microfone desativado'"
+      >
+        🎤
+      </span>
+      <span
+        class="device-icon"
+        :class="cameraEnabled ? 'device-on' : 'device-off'"
+        :title="cameraEnabled ? 'Câmera ativada' : 'Câmera desativada'"
+      >
+        📷
+      </span>
+      <button class="ctrl-btn" type="button" :title="paused ? 'Retomar' : 'Pausar'" @click="togglePause">
+        {{ paused ? '▶' : '⏸' }}
+      </button>
+      <button class="ctrl-btn stop-btn" type="button" title="Parar" @click="stop">■</button>
+      <button class="ctrl-btn cancel-btn" type="button" title="Cancelar gravação" @click="requestCancel">✕</button>
+    </template>
+    <template v-else>
+      <span class="confirm-text">Descartar gravação?</span>
+      <button class="ctrl-btn confirm-yes-btn" type="button" title="Sim, cancelar" @click="confirmCancel">✓</button>
+      <button class="ctrl-btn" type="button" title="Voltar" @click="abortCancelRequest">✕</button>
+    </template>
   </div>
 </template>
 
@@ -142,5 +164,29 @@ function stop(): void {
 
 .stop-btn {
   color: var(--danger);
+}
+
+.cancel-btn {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cancel-btn:hover {
+  color: var(--danger);
+}
+
+.confirm-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--danger);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.confirm-yes-btn {
+  background: var(--danger);
+  color: white;
 }
 </style>
