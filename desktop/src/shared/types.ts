@@ -299,3 +299,113 @@ export interface HighlightChatUpdateRequest {
 export interface HighlightChatUpdateResult {
   highlights: HighlightSegment[]
 }
+
+// --- Meetings ---------------------------------------------------------------
+
+/**
+ * How the "other side" of a meeting (whatever comes out of the speakers) gets
+ * captured. `loopback` is Electron's native system-audio capture; `device` is
+ * a regular input that happens to mirror the output (a PulseAudio monitor on
+ * Linux, a virtual cable like BlackHole on macOS).
+ */
+export type SystemAudioMode = 'none' | 'loopback' | 'device'
+
+export interface MeetingPlatformSupport {
+  platform: string
+  /** True where Electron can capture system audio by itself — Windows only, as of Electron 33. */
+  loopbackSupported: boolean
+  /** User-facing explanation of what this platform can and can't do. */
+  note: string
+}
+
+export interface MeetingAudioSetup {
+  micDeviceId?: string
+  systemAudioMode: SystemAudioMode
+  /** Input device to use when `systemAudioMode` is `'device'` (monitor/virtual cable). */
+  systemAudioDeviceId?: string
+}
+
+export interface MeetingCreateRequest {
+  title: string
+  setup: MeetingAudioSetup
+  provider: AIProviderName
+  model: string
+  agentId?: string
+  /** The selected agent's prompt — steers what the minutes should focus on. */
+  objective?: string
+}
+
+/** Each side of the conversation is recorded to its own file, which is what gives the transcript speaker labels. */
+export type MeetingTrack = 'mic' | 'system'
+
+export type MeetingStatus = 'recording' | 'processing' | 'ready' | 'failed'
+
+export interface MeetingSegment {
+  track: MeetingTrack
+  start: number
+  end: number
+  text: string
+}
+
+export interface MeetingSummary {
+  id: string
+  title: string
+  status: MeetingStatus
+  durationSeconds: number
+  createdAt: string
+  updatedAt: string
+  hasMinutes: boolean
+  error?: string
+}
+
+export interface MeetingDetail extends MeetingSummary {
+  provider: AIProviderName
+  model: string
+  agentId?: string
+  objective?: string
+  segments: MeetingSegment[]
+  minutes?: string
+  minutesFilePath?: string
+  transcriptFilePath?: string
+  history: ChatMessageEntry[]
+  /** `mediacript-media://` URLs so the renderer can replay each track. */
+  audio: { mic?: string; system?: string }
+  folderPath: string
+}
+
+export interface MeetingProgressEvent {
+  meetingId: string
+  step: string
+  status: 'running' | 'completed' | 'failed'
+  detail?: string
+}
+
+/** Console/ffmpeg output mirrored live while a meeting is being processed. */
+export interface MeetingLogLine {
+  meetingId: string
+  level: JobLogLevel
+  text: string
+  timestamp: string
+}
+
+export interface MeetingAskRequest {
+  meetingId: string
+  message: string
+}
+
+export interface MeetingAskResult {
+  reply: string
+}
+
+export interface MeetingRegenerateRequest {
+  meetingId: string
+  /** Extra instruction for this pass ("foque nas decisões de produto", ...) — not persisted as the agent objective. */
+  instructions?: string
+}
+
+export type MeetingControlAction = 'pause' | 'resume' | 'stop' | 'cancel'
+
+export interface MeetingControlWindowOptions {
+  micEnabled: boolean
+  systemAudioEnabled: boolean
+}

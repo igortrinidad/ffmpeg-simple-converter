@@ -13,6 +13,32 @@ e cortar destaques com IA — pensada para quem não usa terminal.
 - **Histórico**: lista de todas as operações já executadas, com acesso rápido aos arquivos gerados
   (abrir ou mostrar na pasta).
 
+## Reuniões (ata com IA)
+
+A aba **Reuniões** grava o microfone e o som do computador ao mesmo tempo, transcreve cada lado
+separadamente e pede para uma IA escrever a ata (resumo, decisões, ações com responsáveis e pauta da
+próxima reunião).
+
+Cada faixa é gravada em um arquivo próprio — é isso que dá a marcação de quem falou (`Você` para o
+microfone, `Participantes` para o áudio do sistema). Quando o usuário está sem fone, o microfone
+também capta o alto-falante; trechos que se sobrepõem no tempo e dizem quase a mesma coisa são
+descartados da faixa do microfone (`mergeTrackSegments` em `main/lib/meetingTranscript.ts`).
+
+O áudio é gravado em blocos de 5 segundos escritos direto em disco (nada fica acumulado em memória),
+então uma reunião de duas horas não pesa no app e uma queda no meio não perde o que já foi gravado.
+
+### Captura do som do sistema por plataforma
+
+| Sistema | Como funciona |
+| --- | --- |
+| Windows | Captura automática (`audio: 'loopback'` do Electron) — nada a instalar. |
+| Linux | Escolha um dispositivo `Monitor of ...` do PulseAudio na opção "Dispositivo". |
+| macOS | O Electron 33 não expõe loopback aqui: instale um driver virtual (BlackHole, Loopback) e selecione-o como "Dispositivo". |
+
+Gravações e documentos ficam em `Documentos/Mediacript Meetings/<data>_<título>/`
+(`mic.webm`/`system.webm` brutos, `.mp3` de transcrição, `transcricao.md` e `ata.md`). Os metadados
+da reunião ficam junto do `config.json`, em `meetings/<id>.json`.
+
 As configurações (API keys) são **compartilhadas com a CLI** — ambas leem/escrevem o mesmo
 `config.json` em `~/.config/ffmpeg-simple-converter` (ou `%APPDATA%/ffmpeg-simple-converter` no
 Windows), então configurar por um dos dois já vale para o outro.

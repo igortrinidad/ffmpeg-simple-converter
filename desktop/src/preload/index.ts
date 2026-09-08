@@ -25,7 +25,19 @@ import type {
   Agent,
   ScreenSource,
   ScreencastControlAction,
-  ScreencastControlWindowOptions
+  ScreencastControlWindowOptions,
+  MeetingAskRequest,
+  MeetingAskResult,
+  MeetingControlAction,
+  MeetingControlWindowOptions,
+  MeetingCreateRequest,
+  MeetingDetail,
+  MeetingLogLine,
+  MeetingPlatformSupport,
+  MeetingProgressEvent,
+  MeetingRegenerateRequest,
+  MeetingSummary,
+  MeetingTrack
 } from '../shared/types'
 
 const api = {
@@ -115,6 +127,47 @@ const api = {
       const listener = (_: unknown, action: ScreencastControlAction) => callback(action)
       ipcRenderer.on('screencast:controlAction', listener)
       return () => ipcRenderer.removeListener('screencast:controlAction', listener)
+    }
+  },
+
+  meetings: {
+    platformSupport: (): Promise<MeetingPlatformSupport> => ipcRenderer.invoke('meetings:platformSupport'),
+    create: (request: MeetingCreateRequest): Promise<string> => ipcRenderer.invoke('meetings:create', request),
+    /** Fire-and-forget: audio chunks stream in for the whole meeting and there's nothing to await. */
+    appendChunk: (meetingId: string, track: MeetingTrack, chunk: ArrayBuffer): void => {
+      ipcRenderer.send('meetings:appendChunk', meetingId, track, chunk)
+    },
+    finishRecording: (meetingId: string, durationSeconds: number): Promise<void> =>
+      ipcRenderer.invoke('meetings:finishRecording', meetingId, durationSeconds),
+    cancel: (meetingId: string): Promise<void> => ipcRenderer.invoke('meetings:cancel', meetingId),
+    process: (meetingId: string): Promise<MeetingDetail> => ipcRenderer.invoke('meetings:process', meetingId),
+    list: (): Promise<MeetingSummary[]> => ipcRenderer.invoke('meetings:list'),
+    get: (meetingId: string): Promise<MeetingDetail> => ipcRenderer.invoke('meetings:get', meetingId),
+    delete: (meetingId: string, removeFiles: boolean): Promise<void> =>
+      ipcRenderer.invoke('meetings:delete', meetingId, removeFiles),
+    regenerateMinutes: (request: MeetingRegenerateRequest): Promise<MeetingDetail> =>
+      ipcRenderer.invoke('meetings:regenerateMinutes', request),
+    ask: (request: MeetingAskRequest): Promise<MeetingAskResult> => ipcRenderer.invoke('meetings:ask', request),
+    openControlWindow: (options: MeetingControlWindowOptions): Promise<void> =>
+      ipcRenderer.invoke('meetings:openControlWindow', options),
+    closeControlWindow: (): Promise<void> => ipcRenderer.invoke('meetings:closeControlWindow'),
+    sendControlAction: (action: MeetingControlAction): void => {
+      ipcRenderer.send('meetings:controlAction', action)
+    },
+    onControlAction: (callback: (action: MeetingControlAction) => void): (() => void) => {
+      const listener = (_: unknown, action: MeetingControlAction) => callback(action)
+      ipcRenderer.on('meetings:controlAction', listener)
+      return () => ipcRenderer.removeListener('meetings:controlAction', listener)
+    },
+    onProgress: (callback: (event: MeetingProgressEvent) => void): (() => void) => {
+      const listener = (_: unknown, event: MeetingProgressEvent) => callback(event)
+      ipcRenderer.on('meetings:progress', listener)
+      return () => ipcRenderer.removeListener('meetings:progress', listener)
+    },
+    onLog: (callback: (line: MeetingLogLine) => void): (() => void) => {
+      const listener = (_: unknown, line: MeetingLogLine) => callback(line)
+      ipcRenderer.on('meetings:log', listener)
+      return () => ipcRenderer.removeListener('meetings:log', listener)
     }
   }
 }

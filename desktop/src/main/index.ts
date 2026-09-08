@@ -21,6 +21,7 @@ import { registerCompressIpc } from './ipc/compress'
 import { registerHighlightChatIpc } from './ipc/highlightChat'
 import { registerAgentsIpc } from './ipc/agents'
 import { registerScreencastIpc } from './ipc/screencast'
+import { registerMeetingsIpc } from './ipc/meetings'
 import { registerMediaProtocol } from './lib/mediaProtocol'
 
 function createWindow(): void {
@@ -72,6 +73,7 @@ app.whenReady().then(() => {
   registerHighlightChatIpc()
   registerAgentsIpc()
   registerScreencastIpc()
+  registerMeetingsIpc()
 
   createWindow()
 

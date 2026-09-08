@@ -9,15 +9,25 @@ export interface GroqTranscriptionResult {
 }
 
 /**
+ * Upload + transcription budget for a single request. Generous by default: a
+ * ~10MB chunk (the largest `transcribeAudioWithSegments` produces) on a slow
+ * uplink can take minutes, and timing out early makes the caller fall back to
+ * another provider — or fail a long recording outright — for no good reason.
+ */
+const DEFAULT_TIMEOUT_MS = 300000
+
+/**
  * Transcribes an audio file using Groq Whisper
  * https://console.groq.com/docs/speech-to-text
  * @param audioLocalFilePath - Local audio file path
  * @param apiKey - Groq API Key
+ * @param timeoutMs - Request timeout in milliseconds (default: 5 minutes)
  * @returns Transcribed text with segment-level timestamps, or null in case of error
  */
 export const groqTranscriptAudio = async (
   audioLocalFilePath: string,
-  apiKey: string
+  apiKey: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<GroqTranscriptionResult | null> => {
 
   if (!apiKey) {
@@ -39,7 +49,7 @@ export const groqTranscriptAudio = async (
       'https://api.groq.com/openai/v1/audio/transcriptions',
       formData,
       {
-        timeout: 60000,
+        timeout: timeoutMs,
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           ...formData.getHeaders()

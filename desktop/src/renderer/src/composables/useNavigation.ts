@@ -1,6 +1,15 @@
 import { reactive, readonly } from 'vue'
 
-export type ModuleId = 'chat' | 'agents' | 'convert' | 'compress' | 'screencast' | 'subtitle' | 'history' | 'settings'
+export type ModuleId =
+  | 'chat'
+  | 'agents'
+  | 'meetings'
+  | 'convert'
+  | 'compress'
+  | 'screencast'
+  | 'subtitle'
+  | 'history'
+  | 'settings'
 
 const state = reactive({
   active: 'chat' as ModuleId,
