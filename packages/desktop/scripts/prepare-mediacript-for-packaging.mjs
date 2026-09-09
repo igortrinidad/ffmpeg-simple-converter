@@ -43,8 +43,25 @@ const tarballPath = path.join(tmpDir, tarballName)
 
 await tar.x({ file: tarballPath, cwd: tmpDir })
 
+const extractedPath = path.join(tmpDir, 'package')
+
+// The tarball has no node_modules, and mediacript's runtime dependencies
+// (axios, inquirer, openai, ...) are NOT installed in packages/desktop/node_modules
+// — they live in packages/cli/node_modules, which is nowhere along the resolution
+// path of packages/desktop. Both Node at runtime and electron-builder's dependency
+// collector resolve a package's imports starting from its own folder, so the copy
+// has to carry them itself, otherwise the installed app crashes on launch with
+// ERR_MODULE_NOT_FOUND (dist/esm/lib.js pulls in inquirer through config/index.js).
+//
+// Installed here, before the move, so npm never runs with a cwd inside node_modules.
+console.log('📥 Installing mediacript production dependencies into the packed copy...')
+execSync('npm install --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund --no-package-lock', {
+  cwd: extractedPath,
+  stdio: 'inherit'
+})
+
 fs.rmSync(mediacriptModulePath, { recursive: true, force: true })
-fs.renameSync(path.join(tmpDir, 'package'), mediacriptModulePath)
+fs.renameSync(extractedPath, mediacriptModulePath)
 fs.rmSync(tmpDir, { recursive: true, force: true })
 
 console.log('✓ node_modules/mediacript replaced with a clean dist-only copy (run "npm install" to restore the dev symlink)')
