@@ -56,6 +56,10 @@ As configurações (API keys) são **compartilhadas com a CLI** — ambas leem/e
 `config.json` em `~/.config/ffmpeg-simple-converter` (ou `%APPDATA%/ffmpeg-simple-converter` no
 Windows), então configurar por um dos dois já vale para o outro.
 
+> 🔒 **As chaves ficam apenas no seu computador**, nesse `config.json`, e são enviadas somente para o
+> provedor que você configurou (Groq, OpenAI, Anthropic, Google ou OpenRouter). O app não tem servidor
+> próprio nem telemetria: nenhuma chave, mídia ou transcrição vai para nós ou para terceiros.
+
 ## Requisitos
 
 - Node.js >= 18

@@ -82,6 +82,17 @@ async function onSave(): Promise<void> {
       <h2>Chaves de API</h2>
     </header>
 
+    <section class="privacy-note">
+      <span class="privacy-icon" aria-hidden="true">🔒</span>
+      <div>
+        <strong>Suas chaves ficam só neste computador.</strong>
+        Elas são gravadas no arquivo <code>config.json</code> da sua máquina e enviadas apenas para o provedor
+        correspondente (Groq, Deepgram, OpenAI, Anthropic, Google ou OpenRouter) na hora de transcrever ou gerar destaques.
+        O Mediacript não tem servidor próprio: nenhuma chave, mídia ou transcrição é enviada para nós ou para terceiros.
+        <span v-if="configDir" class="privacy-path">Local do arquivo: <code>{{ configDir }}</code></span>
+      </div>
+    </section>
+
     <p class="hint">Campos já configurados mostram os últimos dígitos da chave atual — deixe em branco para mantê-la.</p>
 
     <div class="field-group">
@@ -105,6 +116,7 @@ async function onSave(): Promise<void> {
           </button>
         </div>
       </div>
+      <p class="hint">Basta uma. Com mais de uma configurada, elas viram fallback nesta ordem.</p>
     </div>
 
     <div class="field-group">
@@ -201,5 +213,40 @@ async function onSave(): Promise<void> {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 10px;
+}
+
+.privacy-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.privacy-note strong {
+  color: var(--text);
+}
+
+.privacy-icon {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.privacy-path {
+  display: block;
+  margin-top: 6px;
+  word-break: break-all;
+}
+
+.privacy-note code {
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 </style>
