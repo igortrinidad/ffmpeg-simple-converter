@@ -7,7 +7,8 @@ import type {
   ExportFormatId as MediacriptExportFormatId,
   QualityPresetId as MediacriptQualityPresetId,
   FramingMode as MediacriptFramingMode,
-  SubtitleMode as MediacriptSubtitleMode
+  SubtitleMode as MediacriptSubtitleMode,
+  ThemePreference as MediacriptThemePreference
 } from 'mediacript'
 
 // Reuse the root project's types (same shared config.json) instead of
@@ -21,6 +22,7 @@ export type ExportFormatId = MediacriptExportFormatId
 export type QualityPresetId = MediacriptQualityPresetId
 export type FramingMode = MediacriptFramingMode
 export type SubtitleMode = MediacriptSubtitleMode
+export type ThemePreference = MediacriptThemePreference
 
 export interface ExportOptionsInput {
   formats: ExportFormatId[]
@@ -57,6 +59,7 @@ export type OperationId =
   | 'video-convert'
   | 'video-extract'
   | 'video-subtitles'
+  | 'video-subtitles-text'
   | 'video-apply-subtitles'
   | 'video-highlights'
   | 'video-highlights-chat'
@@ -64,6 +67,7 @@ export type OperationId =
   | 'audio-transcribe'
   | 'audio-convert'
   | 'audio-subtitles'
+  | 'audio-subtitles-text'
 
 export type ConversionPreset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow'
 
@@ -177,6 +181,32 @@ export interface CameraBubbleOptions {
   sizeRatio: number
   borderWidth: number
   borderColor: string
+}
+
+export interface ScreencastProcessRequest {
+  rawFilePath: string
+  /** Recorded duration, used to size the bitrate budget of the optimized file. */
+  durationSeconds: number
+}
+
+export interface ScreencastProcessResult {
+  outputPath: string
+  sizeBytes: number
+  rawFilePath: string
+  rawSizeBytes: number
+}
+
+export interface ScreencastProgressEvent {
+  step: string
+  status: 'running' | 'completed' | 'failed'
+  detail?: string
+}
+
+/** Console/ffmpeg output mirrored live while a recording is being optimized — same shape the jobs and meetings panels consume. */
+export interface ScreencastLogLine {
+  level: JobLogLevel
+  text: string
+  timestamp: string
 }
 
 // --- Compress video ---------------------------------------------------------

@@ -1,6 +1,14 @@
-import { ipcMain } from 'electron'
+import { ipcMain, nativeTheme } from 'electron'
 import { getStoredConfig, saveStoredConfig, getConfigDirectory, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS } from 'mediacript'
 import type { AIProviderName, AIProviderOption, Config } from '../../shared/types'
+
+/**
+ * Keeps Electron's own chrome (native dialogs, scrollbars, window background)
+ * in sync with the theme the user picked in Settings › Aparência.
+ */
+export function applyStoredTheme(): void {
+  nativeTheme.themeSource = getStoredConfig().theme ?? 'system'
+}
 
 export function registerConfigIpc(): void {
   ipcMain.handle('config:get', (): Config => {
@@ -8,7 +16,9 @@ export function registerConfigIpc(): void {
   })
 
   ipcMain.handle('config:save', (_event, values: Partial<Config>): Config => {
-    return saveStoredConfig(values)
+    const saved = saveStoredConfig(values)
+    if (values.theme) nativeTheme.themeSource = values.theme
+    return saved
   })
 
   ipcMain.handle('config:getConfigDir', (): string => {

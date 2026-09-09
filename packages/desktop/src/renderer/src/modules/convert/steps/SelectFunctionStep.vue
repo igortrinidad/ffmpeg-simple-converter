@@ -13,10 +13,11 @@ const emit = defineEmits<{
 }>()
 
 // Convert only covers the non-conversational operations — the Chat module owns
-// the ones that hand off into the highlight conversation, and the Subtitle
-// module owns the one that needs the hardsub/softsub mode picker.
+// the ones that hand off into the highlight conversation, and the Legendas
+// module owns every subtitle one (applying a legenda to the video, and
+// extracting it as .srt or as plain text).
 const availableOperations = computed(() =>
-  operationsForType(props.fileKind).filter((op) => !op.startsHighlightChat && !op.needsSubtitleOptions)
+  operationsForType(props.fileKind).filter((op) => !op.startsHighlightChat && !op.belongsToSubtitleModule)
 )
 </script>
 

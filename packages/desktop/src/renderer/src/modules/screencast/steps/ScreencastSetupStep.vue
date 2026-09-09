@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import type { CameraBubbleCorner, CameraBubbleShape, ScreenSource } from '@shared/types'
+import { computed, onMounted, ref } from 'vue'
+import type { CameraBubbleCorner, CameraBubbleOptions, CameraBubbleShape, ScreenSource } from '@shared/types'
+import { BORDER_COLOR_PRESETS, DEFAULT_CAMERA_BUBBLE } from '../composables/cameraBubble'
 import {
-  DEFAULT_CAMERA_BUBBLE,
   useScreenRecorder,
   type RecordingDeviceOption,
   type StartRecordingOptions
 } from '../composables/useScreenRecorder'
+import CameraBubblePreview from '../components/CameraBubblePreview.vue'
 
 const emit = defineEmits<{
   continue: [options: StartRecordingOptions]
@@ -45,6 +46,24 @@ const shapeOptions: { value: CameraBubbleShape; label: string }[] = [
   { value: 'square', label: '■ Quadrado' }
 ]
 
+const cameraBubble = computed<CameraBubbleOptions>(() => ({
+  corner: bubbleCorner.value,
+  shape: bubbleShape.value,
+  sizeRatio: bubbleSizePercent.value / 100,
+  borderWidth: bubbleBorderWidth.value,
+  borderColor: bubbleBorderColor.value
+}))
+
+const selectedSourceThumbnail = computed(
+  () => sources.value.find((source) => source.id === selectedSourceId.value)?.thumbnailDataUrl ?? null
+)
+
+// `<input type="color">` always reports lowercase hex, but a preset could be
+// typed in any case — compare normalized so the swatch highlights correctly.
+function isSelectedColor(color: string): boolean {
+  return bubbleBorderColor.value.toLowerCase() === color.toLowerCase()
+}
+
 async function loadSources(): Promise<void> {
   sources.value = await recorder.listScreenSources()
   if (!selectedSourceId.value && sources.value.length) {
@@ -76,15 +95,7 @@ async function start(): Promise<void> {
       sourceId: selectedSourceId.value,
       cameraDeviceId: cameraEnabled.value ? selectedCameraId.value || undefined : undefined,
       micDeviceId: micEnabled.value ? selectedMicId.value || undefined : undefined,
-      cameraBubble: cameraEnabled.value
-        ? {
-            corner: bubbleCorner.value,
-            shape: bubbleShape.value,
-            sizeRatio: bubbleSizePercent.value / 100,
-            borderWidth: bubbleBorderWidth.value,
-            borderColor: bubbleBorderColor.value
-          }
-        : undefined
+      cameraBubble: cameraEnabled.value ? { ...cameraBubble.value } : undefined
     })
   } catch (err: any) {
     error.value = err?.message || 'Não foi possível iniciar a gravação'
@@ -132,6 +143,13 @@ async function start(): Promise<void> {
 
       <div v-if="cameraEnabled" class="section bubble-section">
         <span class="section-title">Aparência da câmera</span>
+
+        <CameraBubblePreview
+          :source-thumbnail="selectedSourceThumbnail"
+          :camera-device-id="selectedCameraId"
+          :bubble="cameraBubble"
+          :active="cameraEnabled && !starting"
+        />
 
         <div class="bubble-row">
           <span class="bubble-label">Posição</span>
@@ -182,7 +200,24 @@ async function start(): Promise<void> {
               class="bubble-slider"
             />
             <span class="border-width-value">{{ bubbleBorderWidth }}px</span>
-            <input v-model="bubbleBorderColor" type="color" class="color-input" :disabled="bubbleBorderWidth === 0" />
+          </div>
+
+          <div class="swatch-grid" :class="{ 'swatch-grid-disabled': bubbleBorderWidth === 0 }">
+            <button
+              v-for="preset in BORDER_COLOR_PRESETS"
+              :key="preset.value"
+              type="button"
+              class="swatch"
+              :class="{ active: isSelectedColor(preset.value) }"
+              :style="{ background: preset.value }"
+              :title="preset.label"
+              :aria-label="preset.label"
+              :disabled="bubbleBorderWidth === 0"
+              @click="bubbleBorderColor = preset.value"
+            />
+            <label class="swatch swatch-custom" title="Cor personalizada">
+              <input v-model="bubbleBorderColor" type="color" :disabled="bubbleBorderWidth === 0" />
+            </label>
           </div>
         </div>
       </div>
@@ -370,13 +405,42 @@ async function start(): Promise<void> {
   min-width: 32px;
 }
 
-.color-input {
-  width: 32px;
-  height: 26px;
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 6px;
+}
+
+.swatch-grid-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.swatch {
+  aspect-ratio: 1;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg);
+  cursor: pointer;
+}
+
+.swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The native color input is only the picker trigger — the label is the swatch. */
+.swatch-custom {
+  display: block;
+  overflow: hidden;
+  background: conic-gradient(#ef4444, #f59e0b, #84cc16, #06b6d4, #6366f1, #ec4899, #ef4444);
+}
+
+.swatch-custom input {
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
 }
 
 .error-text {

@@ -26,6 +26,10 @@ import type {
   ScreenSource,
   ScreencastControlAction,
   ScreencastControlWindowOptions,
+  ScreencastLogLine,
+  ScreencastProcessRequest,
+  ScreencastProcessResult,
+  ScreencastProgressEvent,
   MeetingAskRequest,
   MeetingAskResult,
   MeetingControlAction,
@@ -117,6 +121,18 @@ const api = {
   screencast: {
     listSources: (): Promise<ScreenSource[]> => ipcRenderer.invoke('screencast:listSources'),
     saveRawRecording: (buffer: ArrayBuffer): Promise<string> => ipcRenderer.invoke('screencast:saveRawRecording', buffer),
+    process: (request: ScreencastProcessRequest): Promise<ScreencastProcessResult> =>
+      ipcRenderer.invoke('screencast:process', request),
+    onProgress: (callback: (event: ScreencastProgressEvent) => void): (() => void) => {
+      const listener = (_: unknown, event: ScreencastProgressEvent) => callback(event)
+      ipcRenderer.on('screencast:progress', listener)
+      return () => ipcRenderer.removeListener('screencast:progress', listener)
+    },
+    onLog: (callback: (line: ScreencastLogLine) => void): (() => void) => {
+      const listener = (_: unknown, line: ScreencastLogLine) => callback(line)
+      ipcRenderer.on('screencast:log', listener)
+      return () => ipcRenderer.removeListener('screencast:log', listener)
+    },
     openControlWindow: (options: ScreencastControlWindowOptions): Promise<void> =>
       ipcRenderer.invoke('screencast:openControlWindow', options),
     closeControlWindow: (): Promise<void> => ipcRenderer.invoke('screencast:closeControlWindow'),

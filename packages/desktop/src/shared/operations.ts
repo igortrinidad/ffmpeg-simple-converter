@@ -15,7 +15,13 @@ export interface OperationDefinition {
    * `needsHighlightOptions`'s upfront prompt/margin form.
    */
   startsHighlightChat?: boolean
-  /** True for the operation that applies a generated subtitle to the video (hardsub/softsub) — needs the Subtitle module's mode picker, not the Convert wizard. */
+  /**
+   * True for the operations the Legendas module owns — applying a subtitle to
+   * a video and extracting one out of a file. They're offered there, behind its
+   * own action picker, instead of in the Convert wizard's function list.
+   */
+  belongsToSubtitleModule?: boolean
+  /** True for the operation that applies a generated subtitle to the video (hardsub/softsub) — needs the Subtitle module's mode picker. */
   needsSubtitleOptions?: boolean
 }
 
@@ -58,21 +64,33 @@ export const OPERATIONS: OperationDefinition[] = [
   },
   {
     id: 'video-subtitles',
-    label: 'Gerar legendas (.srt) com timeline',
+    label: 'Extrair legenda (.srt) com timeline',
     description: 'Transcreve o vídeo e gera um arquivo de legenda com a linha do tempo completa.',
     requiresType: 'video',
     steps: ['Extrair áudio', 'Gerar legendas'],
     needsConversionOptions: false,
-    needsHighlightOptions: false
+    needsHighlightOptions: false,
+    belongsToSubtitleModule: true
+  },
+  {
+    id: 'video-subtitles-text',
+    label: 'Extrair legenda em texto (sem timeline)',
+    description: 'Transcreve o vídeo e salva só o texto da legenda, sem os tempos — pronto para copiar e revisar.',
+    requiresType: 'video',
+    steps: ['Extrair áudio', 'Extrair texto'],
+    needsConversionOptions: false,
+    needsHighlightOptions: false,
+    belongsToSubtitleModule: true
   },
   {
     id: 'video-apply-subtitles',
-    label: 'Aplicar legendas ao vídeo (hardsub/softsub)',
+    label: 'Aplicar legenda ao vídeo (hardsub/softsub)',
     description: 'Transcreve o vídeo e grava as legendas nele — embutidas no vídeo (hardsub) ou como faixa separada que pode ser ligada/desligada (softsub).',
     requiresType: 'video',
     steps: ['Extrair áudio', 'Gerar legendas', 'Aplicar legendas'],
     needsConversionOptions: false,
     needsHighlightOptions: false,
+    belongsToSubtitleModule: true,
     needsSubtitleOptions: true
   },
   {
@@ -123,12 +141,23 @@ export const OPERATIONS: OperationDefinition[] = [
   },
   {
     id: 'audio-subtitles',
-    label: 'Gerar legendas (.srt) com timeline',
+    label: 'Extrair legenda (.srt) com timeline',
     description: 'Transcreve o áudio e gera um arquivo de legenda com a linha do tempo completa.',
     requiresType: 'audio',
     steps: ['Gerar legendas'],
     needsConversionOptions: false,
-    needsHighlightOptions: false
+    needsHighlightOptions: false,
+    belongsToSubtitleModule: true
+  },
+  {
+    id: 'audio-subtitles-text',
+    label: 'Extrair legenda em texto (sem timeline)',
+    description: 'Transcreve o áudio e salva só o texto da legenda, sem os tempos — pronto para copiar e revisar.',
+    requiresType: 'audio',
+    steps: ['Extrair texto'],
+    needsConversionOptions: false,
+    needsHighlightOptions: false,
+    belongsToSubtitleModule: true
   }
 ]
 
@@ -140,4 +169,9 @@ export function getOperation(id: OperationId): OperationDefinition {
 
 export function operationsForType(type: FileKind): OperationDefinition[] {
   return OPERATIONS.filter((o) => o.requiresType === type)
+}
+
+/** True when the Legendas module — not the Convert wizard — is the one that runs this operation. */
+export function isSubtitleOperation(id: OperationId): boolean {
+  return !!getOperation(id).belongsToSubtitleModule
 }

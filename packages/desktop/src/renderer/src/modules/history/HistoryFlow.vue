@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, type DeepReadonly } from 'vue'
 import type { HistoryEntry, ChatSessionSummary, RetryRequest } from '@shared/types'
+import { isSubtitleOperation } from '@shared/operations'
 import { useHistory } from '../../composables/useHistory'
 import { useChatSessions } from '../../composables/useChatSessions'
 import { useRetry } from '../../composables/useRetry'
@@ -64,7 +65,7 @@ function retryJob(entry: DeepReadonly<HistoryEntry>): void {
     subtitleOptions: entry.subtitleOptions ? { ...entry.subtitleOptions } : undefined
   }
   retry.setRetry(request)
-  nav.go(entry.operation === 'video-apply-subtitles' ? 'subtitle' : 'convert')
+  nav.go(isSubtitleOperation(entry.operation) ? 'subtitle' : 'convert')
 }
 
 function continueSession(session: DeepReadonly<ChatSessionSummary>): void {

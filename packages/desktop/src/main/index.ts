@@ -1,4 +1,4 @@
-import { app, session, shell, BrowserWindow } from 'electron'
+import { app, session, shell, nativeTheme, BrowserWindow } from 'electron'
 import { join } from 'path'
 
 // Windows Graphics Capture (WGC) spams "wgc_capture_session.cc ProcessFrame
@@ -12,7 +12,7 @@ if (process.platform === 'win32') {
     'AllowWgcScreenCapturer,AllowWgcWindowCapturer,AllowWgcDesktopCapturer,AllowWgcZeroHz'
   )
 }
-import { registerConfigIpc } from './ipc/config'
+import { registerConfigIpc, applyStoredTheme } from './ipc/config'
 import { registerFilesIpc } from './ipc/files'
 import { registerJobsIpc } from './ipc/jobs'
 import { registerHistoryIpc } from './ipc/history'
@@ -32,6 +32,9 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    // Matches the renderer palette so the window does not flash white before
+    // the first paint when the user is on the dark theme.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#16181d' : '#f5f6f8',
     title: 'Mediacript',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -63,6 +66,7 @@ app.whenReady().then(() => {
     callback(permission === 'media')
   })
 
+  applyStoredTheme()
   registerMediaProtocol()
   registerConfigIpc()
   registerFilesIpc()

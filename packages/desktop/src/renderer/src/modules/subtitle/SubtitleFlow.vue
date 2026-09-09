@@ -1,44 +1,68 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { JobRequest, SubtitleOptionsInput } from '@shared/types'
+import type { FileKind, JobRequest, SubtitleOptionsInput } from '@shared/types'
 import { useStepFlow } from '../../composables/useStepFlow'
 import { useRetry } from '../../composables/useRetry'
 import FileDropzone from '../../shared/components/FileDropzone.vue'
+import SubtitleActionStep from './steps/SubtitleActionStep.vue'
 import SubtitleOptionsStep from './steps/SubtitleOptionsStep.vue'
 import ProcessingPanel from '../../shared/components/ProcessingPanel.vue'
-
-const OPERATION_ID = 'video-apply-subtitles' as const
+import { actionFor, operationFor, type SubtitleAction } from './actions'
 
 const retry = useRetry()
 
-const stepOrder = computed(() => ['files', 'options', 'processing'])
+const stepOrder = computed(() => ['action', 'files', 'options', 'processing'])
 const flow = useStepFlow(stepOrder)
 
+const action = ref<SubtitleAction>('apply')
 const filePaths = ref<string[]>([])
+const fileKind = ref<FileKind>('video')
 const subtitleOptions = ref<SubtitleOptionsInput>({ mode: 'hardsub' })
+
+// Only applying a subtitle needs the hardsub/softsub picker — the two
+// extractions go straight from the files step to processing.
+const needsOptionsStep = computed(() => action.value === 'apply')
+
+const FILE_INTRO: Record<SubtitleAction, string> = {
+  apply: 'Selecione 1 vídeo para gerar e aplicar a legenda.',
+  srt: 'Selecione os arquivos de vídeo ou áudio para extrair a legenda (.srt).',
+  text: 'Selecione os arquivos de vídeo ou áudio para extrair o texto da legenda.'
+}
 
 onMounted(() => {
   const pending = retry.consumeRetry()
-  if (!pending || pending.operation !== OPERATION_ID) return
+  if (!pending) return
 
+  const previous = actionFor(pending.operation)
+  if (!previous) return
+
+  action.value = previous.action
+  fileKind.value = previous.kind
   filePaths.value = [pending.filePath]
   if (pending.subtitleOptions) subtitleOptions.value = { ...pending.subtitleOptions }
-  flow.goTo('options')
+  flow.goTo(needsOptionsStep.value ? 'options' : 'processing')
 })
 
-function onFilesSelected(paths: string[]): void {
-  filePaths.value = paths
+function onActionSelected(selected: SubtitleAction): void {
+  action.value = selected
   flow.next()
 }
 
+function onFilesSelected(paths: string[], kind: FileKind): void {
+  filePaths.value = paths
+  fileKind.value = kind
+  flow.goTo(needsOptionsStep.value ? 'options' : 'processing')
+}
+
 const jobRequest = computed<JobRequest>(() => ({
-  operation: OPERATION_ID,
+  operation: operationFor(action.value, fileKind.value)!,
   filePaths: filePaths.value,
-  subtitleOptions: { ...subtitleOptions.value }
+  subtitleOptions: needsOptionsStep.value ? { ...subtitleOptions.value } : undefined
 }))
 
 function resetFlow(): void {
   filePaths.value = []
+  fileKind.value = 'video'
   subtitleOptions.value = { mode: 'hardsub' }
   flow.reset()
 }
@@ -46,10 +70,18 @@ function resetFlow(): void {
 
 <template>
   <div class="subtitle-flow">
-    <template v-if="flow.currentStep.value === 'files'">
-      <p class="step-intro">Selecione 1 vídeo para gerar e aplicar a legenda.</p>
-      <FileDropzone :max-files="1" only-kind="video" @continue="onFilesSelected" />
+    <SubtitleActionStep v-if="flow.currentStep.value === 'action'" @continue="onActionSelected" />
+
+    <template v-else-if="flow.currentStep.value === 'files'">
+      <p class="step-intro">{{ FILE_INTRO[action] }}</p>
+      <FileDropzone
+        :key="action"
+        :max-files="action === 'apply' ? 1 : undefined"
+        :only-kind="action === 'apply' ? 'video' : undefined"
+        @continue="onFilesSelected"
+      />
     </template>
+
     <SubtitleOptionsStep
       v-else-if="flow.currentStep.value === 'options'"
       v-model="subtitleOptions"

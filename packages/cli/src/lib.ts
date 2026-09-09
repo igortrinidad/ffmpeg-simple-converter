@@ -773,3 +773,4 @@ export async function convertAndTranscribe(
 
 // Re-export types for consumers
 export type { Config, FileType, HighlightFallbackModel, HighlightChatMessage, HighlightChatTurnResult }
+export type { ThemePreference } from './types/index.js'

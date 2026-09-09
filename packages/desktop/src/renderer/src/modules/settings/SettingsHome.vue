@@ -1,12 +1,13 @@
 <script setup lang="ts">
 const emit = defineEmits<{
-  select: [view: 'api-keys' | 'fallback-ai' | 'general']
+  select: [view: 'api-keys' | 'fallback-ai' | 'general' | 'appearance']
 }>()
 
 const ROWS = [
   { id: 'api-keys' as const, icon: '🔑', label: 'Chaves de API', description: 'Transcrição e IA de destaques' },
   { id: 'fallback-ai' as const, icon: '🤖', label: 'IA de destaques (fallback)', description: 'Ordem de modelos alternativos' },
-  { id: 'general' as const, icon: '📁', label: 'Geral', description: 'Pasta de saída padrão' }
+  { id: 'general' as const, icon: '📁', label: 'Geral', description: 'Pasta de saída padrão' },
+  { id: 'appearance' as const, icon: '🎨', label: 'Aparência', description: 'Tema claro, escuro ou do sistema' }
 ]
 </script>
 

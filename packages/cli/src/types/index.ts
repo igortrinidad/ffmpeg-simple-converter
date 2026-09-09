@@ -6,6 +6,9 @@ export interface HighlightFallbackModel {
   model: string
 }
 
+/** UI theme preference for GUI consumers; `system` follows the OS setting */
+export type ThemePreference = 'system' | 'light' | 'dark'
+
 export interface Config {
   openaiApiKey?: string
   groqApiKey?: string
@@ -14,6 +17,8 @@ export interface Config {
   openrouterApiKey?: string
   /** Optional default output directory for generated files, used by GUI consumers (e.g. the desktop app) */
   defaultOutputDir?: string
+  /** UI theme chosen by the user in GUI consumers (e.g. the desktop app); defaults to `system` */
+  theme?: ThemePreference
   /**
    * Ordered provider/model pairs tried, in order, if the primary highlights-AI call
    * (chosen per-run in the wizard) fails even after its own retries. Configured

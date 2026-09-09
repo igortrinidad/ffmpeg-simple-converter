@@ -20,6 +20,7 @@ import {
 import type { TranscriptSegment, HighlightSegment } from 'mediacript'
 import { getOperation } from '../../shared/operations'
 import { addHistoryEntry } from './historyStore'
+import { saveSubtitleTextFile } from './subtitleText'
 import { captureConsole } from './consoleCapture'
 import { resolveHighlightApiKey, buildHighlightFallbackOptions } from './aiOptions'
 import type { JobEvent, JobLogLine, JobRequest, JobStepState } from '../../shared/types'
@@ -118,7 +119,9 @@ async function runJobForFile(
   // If a previous run already produced the .srt for this exact file, reuse it
   // instead of paying for transcription again — the timeline doesn't change
   // unless the source file does.
-  const existingSrtPath = operation.steps.includes('Gerar legendas')
+  const usesSubtitleTimeline =
+    operation.steps.includes('Gerar legendas') || operation.steps.includes('Extrair texto')
+  const existingSrtPath = usesSubtitleTimeline
     ? getSrtOutputPath(filePath, outputDir)
     : undefined
   const reuseExistingSrt = !!existingSrtPath && fs.existsSync(existingSrtPath)
@@ -220,6 +223,33 @@ async function runJobForFile(
         srtFilePath = srtPath
         outputFiles.push(srtPath)
         onTranscriptReady?.(jobId, filePath, transcription.segments, audioFile ?? fileToTranscribe)
+      })
+    }
+
+    if (ok && operation.steps.includes('Extrair texto')) {
+      ok = await runStep('Extrair texto', async () => {
+        // Unlike the .srt operations this one leaves no timeline file behind — but it
+        // still reuses one from a previous run instead of transcribing again.
+        let segments = transcriptSegments
+        if (!segments?.length && reuseExistingSrt && existingSrtPath) {
+          segments = loadSrtFile(existingSrtPath)
+          if (segments.length) {
+            console.log(`\n✓ Legendas já existiam, reaproveitando: ${existingSrtPath}`)
+          }
+        }
+
+        if (!segments?.length) {
+          const fileToTranscribe = audioFile || currentFile
+          const transcription = await transcribeAudioFile(fileToTranscribe, config)
+          if (!transcription || !transcription.segments?.length) {
+            throw new Error('Falha ao transcrever com os provedores configurados (Groq/OpenAI)')
+          }
+          segments = transcription.segments
+        }
+
+        transcriptSegments = segments
+        const textPath = saveSubtitleTextFile(segments, filePath, outputDir)
+        outputFiles.push(textPath)
       })
     }
 

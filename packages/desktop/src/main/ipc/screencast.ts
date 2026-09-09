@@ -1,7 +1,14 @@
 import { ipcMain, desktopCapturer, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'path'
 import { saveRawRecording } from '../lib/screencastStore'
-import type { ScreenSource, ScreencastControlAction, ScreencastControlWindowOptions } from '../../shared/types'
+import { processRecording } from '../lib/screencastRunner'
+import type {
+  ScreenSource,
+  ScreencastControlAction,
+  ScreencastControlWindowOptions,
+  ScreencastProcessRequest,
+  ScreencastProcessResult
+} from '../../shared/types'
 
 let controlWindow: BrowserWindow | null = null
 let mainWindow: BrowserWindow | null = null
@@ -61,6 +68,18 @@ export function registerScreencastIpc(): void {
   ipcMain.handle('screencast:saveRawRecording', (_event, buffer: ArrayBuffer): string => {
     return saveRawRecording(Buffer.from(buffer))
   })
+
+  ipcMain.handle(
+    'screencast:process',
+    async (event, request: ScreencastProcessRequest): Promise<ScreencastProcessResult> => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      return processRecording(
+        request,
+        (step, status, detail) => window?.webContents.send('screencast:progress', { step, status, detail }),
+        (line) => window?.webContents.send('screencast:log', line)
+      )
+    }
+  )
 
   ipcMain.handle('screencast:openControlWindow', (event, options: ScreencastControlWindowOptions): void => {
     mainWindow = windowFromEvent(event)
