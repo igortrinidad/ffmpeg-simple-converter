@@ -1,0 +1,80 @@
+{
+  "name": "mediacript",
+  "version": "1.2.24",
+  "description": "CLI and library to convert media files to performant formats and extract text using Groq and OpenAI's Whisper API",
+  "type": "module",
+  "main": "./dist/cjs/lib.js",
+  "module": "./dist/esm/lib.js",
+  "types": "./dist/esm/lib.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/lib.d.ts",
+        "default": "./dist/esm/lib.js"
+      },
+      "require": {
+        "types": "./dist/cjs/lib.d.ts",
+        "default": "./dist/cjs/lib.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "mediacript": "./cli.mjs",
+    "mediacript-convert": "./convert.js"
+  },
+  "files": [
+    "dist",
+    "cli.mjs",
+    "convert.js",
+    "scripts/unlock-mac.mjs",
+    "README.md",
+    "LIBRARY_USAGE.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/igortrinidad/mediacript.git"
+  },
+  "bugs": {
+    "url": "https://github.com/igortrinidad/mediacript/issues"
+  },
+  "homepage": "https://github.com/igortrinidad/mediacript#readme",
+  "scripts": {
+    "convert": "node convert.js",
+    "start": "node --loader ts-node/esm src/index.ts",
+    "build": "npm run build:esm && npm run build:cjs && npm run build:post",
+    "build:esm": "tsc",
+    "build:cjs": "tsc --project tsconfig.cjs.json",
+    "build:post": "shx cp dist-esm-package.json dist/esm/package.json && shx cp dist-cjs-package.json dist/cjs/package.json && shx chmod +x dist/esm/index.js && shx chmod +x cli.mjs && shx chmod +x scripts/unlock-mac.mjs",
+    "dev": "node --loader ts-node/esm --watch src/index.ts",
+    "test": "NODE_OPTIONS=\"--experimental-vm-modules\" jest",
+    "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --watch",
+    "test:performance": "NODE_OPTIONS=\"--experimental-vm-modules\" jest tests/performance",
+    "test:coverage": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --coverage",
+    "prepublishOnly": "npm run build",
+    "smoke:esm": "node scripts/smoke/import-esm.mjs",
+    "smoke:cjs": "node scripts/smoke/require-cjs.cjs",
+    "smoke:types": "node --loader ts-node/esm scripts/smoke/exports.ts"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "axios": "^1.13.4",
+    "dotenv": "^17.2.3",
+    "form-data": "^4.0.5",
+    "inquirer": "^8.2.6",
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "@types/inquirer": "^8.2.12",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.0.10",
+    "jest": "^30.3.0",
+    "shx": "^0.4.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

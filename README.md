@@ -1,301 +1,170 @@
-# Mediacript
+<p align="center">
+  <img src="./branding/logo-icon.svg" width="96" alt="Mediacript" />
+</p>
 
-Powerful and flexible CLI **and Node.js library** for converting videos/audio and AI transcription, working on Linux, Mac, and Windows.
+<h1 align="center">Mediacript</h1>
 
-## 🌟 Features
+<p align="center">
+  Converta, comprima, transcreva, legende e corte vídeos e áudios com IA —
+  por um <strong>app desktop</strong> ou por uma <strong>CLI/biblioteca Node.js</strong>.
+</p>
 
-- ✅ **Cross-platform**: Works on Linux, macOS, and Windows
-- 📦 **CLI & Library**: Use as command-line tool or Node.js library
-- 🔄 **Multi-Step Workflow**: Combine multiple operations in a single flow
-- 🎙️ **AI Transcription**: Support for Groq (fast) and OpenAI Whisper
-- 📝 **Subtitles with timeline**: Generate `.srt` files from the transcription timeline
-- ✨ **AI-powered highlight clips**: Describe what you're looking for and let an LLM (Anthropic, Gemini or OpenRouter) pick the best moments — then cut one clip per highlight automatically
-- 💾 **State Management**: Saves progress of each workflow step
-- 🔑 **Persistent Configuration**: API keys saved locally and securely
-- 📊 **Visual Progress**: Track each step of the process
+---
 
-## 📋 Requirements
+Este repositório é um monorepo com dois produtos que compartilham o mesmo motor:
 
-- **Node.js** `>= 16`
-- **FFmpeg** installed and available in PATH
+| Pacote | O que é | Para quem |
+| --- | --- | --- |
+| **[`packages/cli`](./packages/cli)** — `mediacript` | CLI interativa + biblioteca Node.js (TypeScript). É onde vivem as primitivas: FFmpeg, transcrição (Groq/OpenAI Whisper), providers de LLM, legendas `.srt`, seleção de destaques. [Publicada no npm](https://www.npmjs.com/package/mediacript). | Quem vive no terminal ou quer automatizar isso dentro de outra aplicação. |
+| **[`packages/desktop`](./packages/desktop)** — Mediacript Desktop | App Electron + Vue 3 que consome a biblioteca acima e adiciona gravação de reuniões, screencast, chat com IA e histórico. Distribuído como `.exe`/`.dmg` nas [Releases](https://github.com/igortrinidad/mediacript/releases). | Quem não usa terminal — arrasta o arquivo e pronto. |
 
-### Installing FFmpeg
+Os dois leem e escrevem o **mesmo `config.json`** (API keys, pasta de saída padrão), então
+configurar em um já vale para o outro.
 
-#### Windows
-```bash
-# With Chocolatey
-choco install ffmpeg
+## 🗂️ Estrutura do repositório
 
-# With Scoop
-scoop install ffmpeg
+```
+mediacript/
+├── packages/
+│   ├── cli/            # pacote npm "mediacript" — CLI + biblioteca
+│   │   ├── src/        # código-fonte TypeScript (ai, transcript, highlights, subtitles, utils, workflow)
+│   │   ├── tests/      # suíte Jest
+│   │   ├── examples/   # exemplos de uso como biblioteca
+│   │   └── scripts/    # unlock-mac (publicado) + smoke tests do build
+│   └── desktop/        # app Electron "Mediacript Desktop"
+│       ├── src/main/       # processo principal: janelas, IPC, orquestração dos jobs
+│       ├── src/preload/    # contextBridge (window.api)
+│       ├── src/renderer/   # app Vue 3 (módulos da bottom nav)
+│       ├── src/shared/     # tipos e catálogos compartilhados entre os 3 processos
+│       └── scripts/        # preparação do empacotamento (electron-builder)
+├── util/               # scripts do repositório como um todo (ex.: sync de versão)
+├── branding/           # logos
+└── .github/workflows/  # release automático (bump → tag → build → GitHub Release)
 ```
 
-#### macOS
+Cada pacote tem seu próprio `package.json`, `package-lock.json` e `node_modules` — não há
+workspaces do npm de propósito: o `electron-builder` percorre o `node_modules` do desktop para
+decidir o que empacotar, e o hoisting de workspaces quebraria esse cálculo. O desktop consome a
+CLI como dependência local (`"mediacript": "file:../cli"`).
+
+## ✨ O que dá pra fazer
+
+### No app desktop
+
+A navegação é uma bottom nav com um módulo por tarefa:
+
+| Módulo | O que faz |
+| --- | --- |
+| 💬 **Chat** | Transcreve o vídeo e abre uma conversa com a IA para escolherem juntos os melhores trechos — você refina em linguagem natural ("mais curtos", "foca na parte de preço") e só então os clipes são cortados. |
+| 🤖 **Agents** | Salva agentes reutilizáveis: um objetivo em texto + as opções de export (formato/qualidade). Escolha um agente e ele já entra no chat com o prompt e o preset certos. |
+| 🎙️ **Reuniões** | Grava microfone e som do sistema em faixas separadas, transcreve cada lado (marcando `Você` × `Participantes`) e pede para a IA escrever a ata: resumo, decisões, ações com responsáveis e pauta da próxima. |
+| 🔄 **Convert** | Wizard de poucos passos para as operações clássicas (converter, extrair áudio, transcrever, legendar, cortar destaques) com progresso por etapa. |
+| 📦 **Comprimir** | Comprime vídeo para um tamanho-alvo em MB (com preset de velocidade, altura máxima e áudio mono opcionais). |
+| 🎥 **Screencast** | Grava a tela com microfone e uma bolha de câmera opcional (canto e formato configuráveis), controlada por uma janelinha flutuante. |
+| 📝 **Legendas** | Gera `.srt` com timeline e, se quiser, aplica no vídeo — embutida (hardsub) ou como faixa que liga/desliga (softsub). |
+| 🕐 **History** | Tudo que já rodou, com atalho para abrir o arquivo gerado ou mostrar na pasta, além das conversas de chat salvas. |
+| ⚙️ **Settings** | API keys (Groq, OpenAI, Anthropic, Gemini, OpenRouter), IA de fallback e pasta de saída padrão. |
+
+**Operações disponíveis no wizard:**
+
+| Vídeo | Áudio |
+| --- | --- |
+| Converter vídeo + Extrair áudio + Transcrever | Converter áudio + Transcrever |
+| Extrair áudio do vídeo + Transcrever | Transcrever áudio |
+| Converter vídeo (H.264/AAC) | Converter áudio (MP3) |
+| Extrair áudio do vídeo | Gerar legendas (.srt) com timeline |
+| Gerar legendas (.srt) com timeline | |
+| Aplicar legendas ao vídeo (hardsub/softsub) | |
+| Gerar cortes com IA (highlights) | |
+| Escolher melhores trechos conversando com a IA | |
+
+**Formatos de export dos clipes:** 16:9, 9:16, 1:1, Instagram Reels, Meta Ads, TikTok, YouTube e
+YouTube Shorts — cada um com preset de qualidade (rascunho, padrão, alta ou igual ao original).
+
+### Na CLI / biblioteca
+
 ```bash
-brew install ffmpeg
+npx mediacript                 # CLI interativa: escolhe o arquivo e o workflow
 ```
-
-#### Linux
-```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
-
-# Fedora
-sudo dnf install ffmpeg
-
-# Arch Linux
-sudo pacman -S ffmpeg
-```
-
-Verify installation:
-```bash
-ffmpeg -version
-```
-
-## 🚀 Installation
-
-### As CLI
-
-```bash
-npm install
-```
-
-### As Library (in your Node.js project)
-
-```bash
-npm install mediacript
-```
-
-## 💡 Usage
-
-### As a Node.js Library
-
-MediaScript can be used programmatically in your Node.js applications:
 
 ```javascript
 import { processVideo, transcribeAudioFile } from 'mediacript'
 
-// Process a complete video
 const result = await processVideo('video.mp4')
-console.log('Transcription:', result.transcription.text)
-
-// Or just transcribe an audio file
-const transcription = await transcribeAudioFile('audio.mp3')
-console.log(transcription.text)
+console.log(result.transcription.text)
 ```
 
-**📚 [Complete Library Documentation](./LIBRARY_USAGE.md)** - Learn about all available functions, workflows, and examples.
+Detalhes completos em **[packages/cli/README.md](./packages/cli/README.md)**,
+**[LIBRARY_USAGE.md](./packages/cli/LIBRARY_USAGE.md)** e
+**[examples/](./packages/cli/examples/)**.
 
-**📖 [Examples Directory](./examples/)** - Practical examples including:
-- Basic transcription
-- Complete workflows
-- Batch processing
-- Express.js API
-- TypeScript usage
+## 📋 Requisitos
 
-### Interactive CLI Mode (Recommended)
+- **Node.js** `>= 18` para usar (o desenvolvimento e o CI usam a versão fixada no [`.nvmrc`](./.nvmrc))
+- **FFmpeg** instalado e no PATH — `choco install ffmpeg` (Windows), `brew install ffmpeg` (macOS),
+  `sudo apt install ffmpeg` (Linux). Confirme com `ffmpeg -version`.
+- Pelo menos uma API key de transcrição ([Groq](https://console.groq.com) é mais rápida e barata;
+  [OpenAI](https://platform.openai.com) funciona como fallback). Para os recursos de IA (cortes,
+  chat, ata de reunião) você também pode usar Anthropic, Gemini ou OpenRouter.
+
+## 🚀 Começando
 
 ```bash
-npm start
+git clone https://github.com/igortrinidad/mediacript.git
+cd mediacript
+npm run setup          # instala as dependências dos dois pacotes
 ```
 
-The CLI will:
-1. ✅ Check if FFmpeg is installed
-2. 🔑 Request API keys on first run (optional)
-3. 📁 List media files in the current directory
-4. 🎯 Allow you to choose the desired workflow
+A partir da raiz:
 
-### Available Workflows
+| Comando | O que faz |
+| --- | --- |
+| `npm run desktop` | Sobe o app desktop em modo dev (recompila a CLI antes) |
+| `npm run desktop:build` | Compila main/preload/renderer para `packages/desktop/out` |
+| `npm run desktop:typecheck` | Typecheck do processo principal + renderer |
+| `npm run package:win` / `:mac` / `:linux` | Gera o instalador da plataforma em `packages/desktop/release` |
+| `npm run cli` | Roda a CLI interativa a partir do código-fonte |
+| `npm run cli:build` | Compila a biblioteca para `packages/cli/dist` (ESM + CJS) |
+| `npm run cli:test` | Suíte Jest da CLI |
+| `npm run version:sync` | Aplica a versão da raiz em todos os `packages/*` |
 
-#### For Videos 🎬
-- **Convert video + Extract audio + Transcribe**: Complete pipeline
-- **Extract audio from video + Transcribe**: To transcribe videos
-- **Only convert video**: Optimize video (H.264/AAC)
-- **Only extract audio from video**: Extract audio as MP3
-- **Extract subtitles with timeline (.srt)**: Transcribe and save a subtitle file with the full timeline
-- **Generate AI highlight clips**: Transcribe, describe what you're looking for in plain text, and let an LLM (Anthropic, Gemini or OpenRouter) select the best moments — one `.mp4` clip is cut per highlight
+Você também pode trabalhar dentro de um pacote específico (`cd packages/desktop && npm run dev`) —
+cada um documenta seus próprios scripts no README.
 
-#### For Audio 🎵
-- **Convert audio + Transcribe**: Convert and transcribe
-- **Only transcribe audio**: Direct transcription
-- **Only convert audio**: Convert to MP3
-- **Extract subtitles with timeline (.srt)**: Transcribe and save a subtitle file with the full timeline
+## 🔑 Configuração compartilhada
 
-## 🔑 API Keys Configuration
+API keys e preferências ficam em um único arquivo, usado por CLI e desktop:
 
-### First Run
-
-The first time you run it, you'll be asked if you want to configure your API keys:
-
-```
-⚠️  No API key found.
-? Do you want to configure your API keys now? (Y/n)
-
-🔑 Configure your API keys (optional - press Enter to skip)
-
-? Groq API Key (recommended - faster): sk-proj-...
-? OpenAI API Key: sk-...
-```
-
-### Where Keys Are Saved
-
-- **Linux/Mac**: `~/.config/ffmpeg-simple-converter/config.json`
+- **Linux/macOS**: `~/.config/ffmpeg-simple-converter/config.json`
 - **Windows**: `%APPDATA%/ffmpeg-simple-converter/config.json`
 
-### Getting API Keys
+A transcrição tenta **Groq** primeiro (mais rápido e barato) e cai para **OpenAI** se falhar ou não
+estiver configurada.
 
-#### Groq (Recommended - Faster and Cheaper)
-1. Visit: https://console.groq.com
-2. Create a free account
-3. Generate an API key in "API Keys"
+### macOS: app "danificado" ao abrir o `.dmg`
 
-#### OpenAI
-1. Visit: https://platform.openai.com
-2. Create an account
-3. Add credits
-4. Generate an API key in "API Keys"
-
-### Transcription Priority
-
-The system automatically tries in the following order:
-1. **Groq** (if configured) - faster and cheaper
-2. **OpenAI** (fallback) - if Groq fails or is not configured
-
-### AI Highlight Clips — Provider & Model
-
-The "Generate AI highlight clips" workflow needs an LLM to read the transcript timeline and pick the
-best moments. When you pick this workflow the CLI asks you to choose:
-
-1. A **provider**: Anthropic (Claude), Google (Gemini), OpenRouter, OpenAI or Groq
-2. A **model** from a curated list for that provider (or type a custom model id)
-3. Its **API key** — if it isn't configured yet, you're prompted for it right there and it gets saved
-   for next time in the same config file
-
-Choosing **OpenAI** or **Groq** here reuses the exact same API key already configured for Whisper
-transcription — no extra setup needed if you've already configured one of those for transcription.
-Anthropic, Gemini and OpenRouter each use their own key.
-
-You can reconfigure any of these keys at any point — just pick the highlights workflow again and enter
-a new key when prompted.
-
-## 📊 Usage Example
+O `.dmg` não é assinado/notarizado, então o Gatekeeper coloca o app em quarentena. Depois de baixar:
 
 ```bash
-$ npm start
-
-🎬 FFmpeg Simple Converter - Multi-Step Workflow
-
-✓ FFmpeg is installed (version: 6.0)
-
-📁 Found 3 media file(s)
-
-? Select file:
-  🎬 lecture_video.mp4
-❯ 🎵 podcast.mp3
-  🎬 presentation.mkv
-
-? Select what you want to do:
-❯ 🎬 Convert video + Extract audio + Transcribe
-  🎬 Extract audio from video + Transcribe
-  🎵 Convert audio + Transcribe
-  🎙️  Only transcribe audio
-
-🚀 Starting workflow: Convert video + Extract audio + Transcribe
-📁 Input file: lecture_video.mp4
-
-[1/3] Convert video...
-🎬 Converting video to optimized format...
-✓ Video converted: lecture_video_converted.mp4
-
-[2/3] Extract audio...
-🎵 Extracting audio from video...
-✓ Audio extracted: lecture_video_converted_audio.mp3
-
-[3/3] Transcribe audio...
-🎙️  Transcribing: lecture_video_converted_audio.mp3
-📡 Trying Groq Whisper (fast)...
-✓ Transcription completed with Groq
-✓ Transcription saved: lecture_video_converted_audio.txt
-
-📊 Workflow Progress:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ 1. Convert video (12.3s)
-✓ 2. Extract audio (3.1s)
-✓ 3. Transcribe audio (8.7s)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📦 Generated files:
-  • Video: lecture_video_converted.mp4
-  • Audio: lecture_video_converted_audio.mp3
-  • Transcription: lecture_video_converted_audio.txt
+npx mediacript unlock-mac
 ```
 
-## 🗂️ Project Structure
+O comando monta o DMG, instala em `/Applications`, remove a quarentena e abre o app.
 
-```
-src/
-├── ai/              # LLM provider abstraction (Anthropic, Gemini, OpenRouter)
-├── config/          # Configuration and API keys management
-├── highlights/       # AI highlight-selection from a transcript timeline
-├── subtitles/        # SRT subtitle generation
-├── transcript/      # Transcription modules (Groq and OpenAI)
-├── types/           # TypeScript definitions
-├── utils/           # Utilities (ffmpeg, files, etc)
-├── workflow/        # Workflow management system
-└── index.ts         # Main CLI
-```
+## 📦 Release
 
-## 🔧 Available Scripts
+Todo push na `main` dispara o [workflow de release](./.github/workflows/release-desktop.yml), que:
 
-```bash
-npm start           # Run the interactive CLI
-npm run build       # Compile TypeScript to JavaScript
-npm run dev         # Development mode with watch
-npm run convert     # Run the old converter (convert.js)
-```
+1. Faz o bump de patch no `package.json` da **raiz** (fonte da verdade da versão do produto);
+2. Propaga essa versão para todos os `packages/*` com [`util/sync-version.mjs`](./util/sync-version.mjs);
+3. Commita com `[skip ci]`, cria a tag `vX.Y.Z`;
+4. Builda os instaladores Windows e macOS e publica na GitHub Release.
 
-## 📦 Supported Formats
+## 🤝 Contribuindo
 
-### Audio
-`.ogg`, `.wav`, `.mp3`, `.m4a`, `.aac`, `.flac`
+Issues e PRs são bem-vindos. Antes de abrir um PR, rode `npm run cli:test` e
+`npm run desktop:typecheck`.
 
-### Video
-`.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`
-
-## 🛠️ State Management
-
-Each workflow saves its state to `.workflow-state.json` in the output directory:
-
-```json
-{
-  "steps": [
-    {
-      "id": "step-0",
-      "name": "Convert video",
-      "status": "completed",
-      "startTime": 1675436400000,
-      "endTime": 1675436412300
-    }
-  ],
-  "intermediateFiles": {
-    "convertedVideo": "video_converted.mp4",
-    "extractedAudio": "video_audio.mp3",
-    "transcriptionText": "video_audio.txt",
-    "subtitlesFile": "video.srt",
-    "highlightClips": ["video_cut.mp4", "video_cut_1.mp4"]
-  }
-}
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to open issues and pull requests.
-
-## 📄 License
+## 📄 Licença
 
 MIT
-
-## 🙏 Acknowledgments
-
-- FFmpeg for the amazing tool
-- OpenAI and Groq for transcription services

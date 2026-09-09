@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+coverage/
 
 # Environment
 .env
@@ -50,5 +51,7 @@ convertions/
 *.jpg
 
 # Desktop app (Electron) build output
-desktop/out/
-desktop/release/
+packages/desktop/out/
+packages/desktop/release/
+# TypeScript incremental build info
+*.tsbuildinfo

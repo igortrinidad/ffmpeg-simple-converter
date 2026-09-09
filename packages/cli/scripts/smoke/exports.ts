@@ -1,6 +1,6 @@
 /**
  * Test file to verify library exports
- * Run with: node --loader ts-node/esm test-lib.ts
+ * Run with: node --loader ts-node/esm scripts/smoke/exports.ts
  */
 
 import {
@@ -17,7 +17,7 @@ import {
   type TranscriptionResult,
   type ConversionResult,
   type MediaScriptOptions
-} from './src/lib.js'
+} from '../../src/lib.js'
 
 console.log('✓ All exports loaded successfully!')
 console.log('')

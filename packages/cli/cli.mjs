@@ -11,7 +11,7 @@ async function main() {
   const [subcommand] = process.argv.slice(2)
 
   if (subcommand === 'unlock-mac') {
-    const unlockMacURL = pathToFileURL(join(__dirname, 'unlock-mac.mjs')).href
+    const unlockMacURL = pathToFileURL(join(__dirname, 'scripts', 'unlock-mac.mjs')).href
     const { runUnlockMac } = await import(unlockMacURL)
     await runUnlockMac()
     return

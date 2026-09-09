@@ -7,7 +7,7 @@
   "main": "./out/main/index.js",
   "author": "Igor Trindade",
   "scripts": {
-    "prepare:lib": "cd .. && npm run build",
+    "prepare:lib": "npm --prefix ../cli run build",
     "dev": "npm run prepare:lib && electron-vite dev",
     "build": "npm run prepare:lib && electron-vite build",
     "start": "electron-vite preview",
@@ -20,7 +20,7 @@
     "package:win": "npm run prepare:package && electron-vite build && electron-builder --win"
   },
   "dependencies": {
-    "mediacript": "file:..",
+    "mediacript": "file:../cli",
     "vue": "^3.5.13"
   },
   "devDependencies": {

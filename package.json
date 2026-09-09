@@ -1,35 +1,9 @@
 {
-  "name": "mediacript",
+  "name": "mediacript-monorepo",
   "version": "1.2.24",
-  "description": "CLI and library to convert media files to performant formats and extract text using Groq and OpenAI's Whisper API",
+  "private": true,
+  "description": "Monorepo for Mediacript — the mediacript CLI/library (packages/cli) and the Mediacript Desktop app (packages/desktop)",
   "type": "module",
-  "main": "./dist/cjs/lib.js",
-  "module": "./dist/esm/lib.js",
-  "types": "./dist/esm/lib.d.ts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/esm/lib.d.ts",
-        "default": "./dist/esm/lib.js"
-      },
-      "require": {
-        "types": "./dist/cjs/lib.d.ts",
-        "default": "./dist/cjs/lib.js"
-      }
-    },
-    "./package.json": "./package.json"
-  },
-  "bin": {
-    "mediacript": "./cli.mjs",
-    "mediacript-convert": "./convert.js"
-  },
-  "files": [
-    "dist",
-    "cli.mjs",
-    "convert.js",
-    "unlock-mac.mjs",
-    "README.md"
-  ],
   "repository": {
     "type": "git",
     "url": "git://github.com/igortrinidad/mediacript.git"
@@ -39,38 +13,19 @@
   },
   "homepage": "https://github.com/igortrinidad/mediacript#readme",
   "scripts": {
-    "convert": "node convert.js",
-    "start": "node --loader ts-node/esm src/index.ts",
-    "build": "npm run build:esm && npm run build:cjs && npm run build:post",
-    "build:esm": "tsc",
-    "build:cjs": "tsc --project tsconfig.cjs.json",
-    "build:post": "shx cp dist-esm-package.json dist/esm/package.json && shx cp dist-cjs-package.json dist/cjs/package.json && shx chmod +x dist/esm/index.js && shx chmod +x cli.mjs",
-    "dev": "node --loader ts-node/esm --watch src/index.ts",
-    "test": "NODE_OPTIONS=\"--experimental-vm-modules\" jest",
-    "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --watch",
-    "test:performance": "NODE_OPTIONS=\"--experimental-vm-modules\" jest tests/performance",
-    "test:coverage": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --coverage",
-    "prepublishOnly": "npm run build"
+    "setup": "npm --prefix packages/cli install && npm --prefix packages/desktop install",
+    "cli": "npm --prefix packages/cli run start",
+    "cli:build": "npm --prefix packages/cli run build",
+    "cli:test": "npm --prefix packages/cli run test",
+    "desktop": "npm --prefix packages/desktop run dev",
+    "desktop:build": "npm --prefix packages/desktop run build",
+    "desktop:typecheck": "npm --prefix packages/desktop run typecheck",
+    "package:win": "npm --prefix packages/desktop run package:win",
+    "package:mac": "npm --prefix packages/desktop run package:mac",
+    "package:linux": "npm --prefix packages/desktop run package:linux",
+    "version:sync": "node util/sync-version.mjs"
   },
   "engines": {
-    "node": ">=16"
-  },
-  "dependencies": {
-    "axios": "^1.13.4",
-    "dotenv": "^17.2.3",
-    "form-data": "^4.0.5",
-    "inquirer": "^8.2.6",
-    "openai": "^4.104.0"
-  },
-  "devDependencies": {
-    "@jest/globals": "^30.3.0",
-    "@types/inquirer": "^8.2.12",
-    "@types/jest": "^30.0.0",
-    "@types/node": "^25.0.10",
-    "jest": "^30.3.0",
-    "shx": "^0.4.0",
-    "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "node": ">=18"
   }
 }

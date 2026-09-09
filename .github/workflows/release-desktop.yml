@@ -1,8 +1,9 @@
 name: Release Desktop build
 
-# Runs on every push to main: bumps the patch version in the root and
-# desktop/ package.json (kept in sync), tags the commit, builds the
-# Windows installer from desktop/, and publishes it as a GitHub Release.
+# Runs on every push to main: bumps the patch version at the repo root and
+# propagates it to every packages/* (via util/sync-version.mjs), tags the
+# commit, builds the desktop installers from packages/desktop and publishes
+# them as a GitHub Release.
 #
 # The bump commit's message includes "[skip ci]" so GitHub does not
 # trigger this workflow again for that push (avoids an infinite loop).
@@ -38,13 +39,13 @@ jobs:
         run: |
           NEW_VERSION=$(npm version patch --no-git-tag-version)
           NEW_VERSION=${NEW_VERSION#v}
-          npm --prefix desktop version "$NEW_VERSION" --no-git-tag-version --allow-same-version
+          node util/sync-version.mjs
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
         run: |
           VERSION=${{ steps.bump.outputs.new_version }}
-          git add package.json package-lock.json desktop/package.json desktop/package-lock.json
+          git add package.json packages/cli/package.json packages/cli/package-lock.json packages/desktop/package.json packages/desktop/package-lock.json
           git commit -m "chore: bump version to v${VERSION} [skip ci]"
           git tag "v${VERSION}"
           git push origin HEAD:main
@@ -63,18 +64,19 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            package-lock.json
-            desktop/package-lock.json
+            packages/cli/package-lock.json
+            packages/desktop/package-lock.json
 
-      - name: Install root dependencies
+      - name: Install CLI dependencies
+        working-directory: packages/cli
         run: npm ci
 
       - name: Install desktop dependencies
-        working-directory: desktop
+        working-directory: packages/desktop
         run: npm ci
 
       - name: Build Windows installer
-        working-directory: desktop
+        working-directory: packages/desktop
         run: npm run package:win
 
       - name: Publish GitHub Release
@@ -84,9 +86,9 @@ jobs:
           name: Mediacript v${{ needs.bump-and-tag.outputs.new_version }}
           generate_release_notes: true
           files: |
-            desktop/release/*.exe
-            desktop/release/latest.yml
-            desktop/release/*.blockmap
+            packages/desktop/release/*.exe
+            packages/desktop/release/latest.yml
+            packages/desktop/release/*.blockmap
 
   build-mac:
     needs: bump-and-tag
@@ -101,18 +103,19 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            package-lock.json
-            desktop/package-lock.json
+            packages/cli/package-lock.json
+            packages/desktop/package-lock.json
 
-      - name: Install root dependencies
+      - name: Install CLI dependencies
+        working-directory: packages/cli
         run: npm ci
 
       - name: Install desktop dependencies
-        working-directory: desktop
+        working-directory: packages/desktop
         run: npm ci
 
       - name: Build macOS installer
-        working-directory: desktop
+        working-directory: packages/desktop
         run: npm run package:mac
 
       - name: Publish GitHub Release
@@ -122,6 +125,6 @@ jobs:
           name: Mediacript v${{ needs.bump-and-tag.outputs.new_version }}
           generate_release_notes: true
           files: |
-            desktop/release/*.dmg
-            desktop/release/latest-mac.yml
-            desktop/release/*.blockmap
+            packages/desktop/release/*.dmg
+            packages/desktop/release/latest-mac.yml
+            packages/desktop/release/*.blockmap
