@@ -24,6 +24,15 @@ export type FramingMode = MediacriptFramingMode
 export type SubtitleMode = MediacriptSubtitleMode
 export type ThemePreference = MediacriptThemePreference
 
+/** Where the app writes everything it generates — see main/lib/outputPaths.ts */
+export interface OutputRootInfo {
+  /** Root in use right now: the user's `defaultOutputDir`, or `defaultRoot` when unset */
+  root: string
+  /** Built-in default, `<Documentos>/Mediacript` */
+  defaultRoot: string
+  isDefault: boolean
+}
+
 export interface ExportOptionsInput {
   formats: ExportFormatId[]
   quality: QualityPresetId
@@ -68,6 +77,13 @@ export type OperationId =
   | 'audio-convert'
   | 'audio-subtitles'
   | 'audio-subtitles-text'
+
+/**
+ * What produced a history entry. Runs driven by the Convert/Legendas wizard
+ * carry their wizard operation id and can be replayed; the modules that work
+ * outside the job runner (Comprimir, Screencast) carry their own id instead.
+ */
+export type HistoryOperation = OperationId | 'compress' | 'screencast'
 
 export type ConversionPreset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow'
 
@@ -125,7 +141,7 @@ export interface JobLogLine {
 
 export interface HistoryEntry {
   id: string
-  operation: OperationId
+  operation: HistoryOperation
   operationLabel: string
   inputFile: string
   outputFiles: string[]

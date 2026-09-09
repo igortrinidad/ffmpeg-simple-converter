@@ -1,8 +1,8 @@
-import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { getConfigDirectory } from 'mediacript'
+import { createRunStamp, getFeatureOutputDir } from './outputPaths'
 import type {
   AIProviderName,
   ChatMessageEntry,
@@ -69,9 +69,7 @@ function getMeetingFilePath(id: string): string {
 
 /** User-visible root for meeting audio + generated documents. */
 export function getMeetingsRootDir(): string {
-  const dir = path.join(app.getPath('documents'), 'Mediacript Meetings')
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return dir
+  return getFeatureOutputDir('meetings')
 }
 
 export function createMeeting(input: {
@@ -84,8 +82,7 @@ export function createMeeting(input: {
 }): PersistedMeeting {
   const now = new Date()
   const id = randomUUID()
-  const stamp = now.toISOString().slice(0, 16).replace(/[:T]/g, '-')
-  const folderPath = path.join(getMeetingsRootDir(), `${stamp}_${slugifyName(input.title)}`)
+  const folderPath = path.join(getMeetingsRootDir(), `${createRunStamp(now)}_${slugifyName(input.title)}`)
   fs.mkdirSync(folderPath, { recursive: true })
 
   const meeting: PersistedMeeting = {

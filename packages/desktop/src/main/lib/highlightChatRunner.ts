@@ -1,13 +1,15 @@
+import fs from 'fs'
+import path from 'path'
 import {
   continueVideoHighlightChat,
   cutHighlightClipsWithAssets,
-  createOutputFolderForFile,
   exportClipToFormat,
   getStoredConfig
 } from 'mediacript'
 import type { TranscriptSegment, HighlightSegment, HighlightAIOptions } from 'mediacript'
 import { resolveHighlightApiKey, buildHighlightFallbackOptions } from './aiOptions'
 import { buildMediaUrl } from './mediaProtocol'
+import { createRunOutputDir, createRunStamp } from './outputPaths'
 import { captureConsole, type ConsoleLogLine } from './consoleCapture'
 import {
   createSession,
@@ -221,7 +223,13 @@ export async function processCuts(
   const stopCapture = onLog ? captureConsole(onLog) : undefined
 
   try {
-    const outputDir = createOutputFolderForFile(session.filePath)
+    // The clips join the rest of the session's assets — the transcribe-only job
+    // that started this chat already made a run folder for them (it's where the
+    // extracted audio lives).
+    const sessionDir = path.dirname(session.audioFilePath)
+    const outputDir = fs.existsSync(sessionDir)
+      ? sessionDir
+      : createRunOutputDir('highlights', session.filePath, createRunStamp())
     const clips = await cutHighlightClipsWithAssets(session.filePath, session.highlights, outputDir, { marginSeconds })
 
     const outputFiles: string[] = []

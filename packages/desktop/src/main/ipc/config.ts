@@ -1,6 +1,7 @@
 import { ipcMain, nativeTheme } from 'electron'
 import { getStoredConfig, saveStoredConfig, getConfigDirectory, AI_MODELS_BY_PROVIDER, AI_PROVIDER_LABELS } from 'mediacript'
-import type { AIProviderName, AIProviderOption, Config } from '../../shared/types'
+import { getDefaultOutputRoot, getOutputRoot } from '../lib/outputPaths'
+import type { AIProviderName, AIProviderOption, Config, OutputRootInfo } from '../../shared/types'
 
 /**
  * Keeps Electron's own chrome (native dialogs, scrollbars, window background)
@@ -23,6 +24,12 @@ export function registerConfigIpc(): void {
 
   ipcMain.handle('config:getConfigDir', (): string => {
     return getConfigDirectory()
+  })
+
+  ipcMain.handle('config:getOutputRoot', (): OutputRootInfo => {
+    const defaultRoot = getDefaultOutputRoot()
+    const root = getOutputRoot()
+    return { root, defaultRoot, isDefault: root === defaultRoot }
   })
 
   ipcMain.handle('config:listAIProviders', (): AIProviderOption[] => {

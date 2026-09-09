@@ -1,4 +1,4 @@
-import type { FileKind, OperationId } from './types'
+import type { FileKind, HistoryOperation, OperationId } from './types'
 
 export interface OperationDefinition {
   id: OperationId
@@ -169,6 +169,16 @@ export function getOperation(id: OperationId): OperationDefinition {
 
 export function operationsForType(type: FileKind): OperationDefinition[] {
   return OPERATIONS.filter((o) => o.requiresType === type)
+}
+
+/**
+ * True when a history entry came from the Convert/Legendas wizard — the only
+ * kind that maps to an OPERATIONS entry, and so the only kind that can be
+ * replayed. Comprimir and Screencast runs are recorded too, but under their
+ * own ids.
+ */
+export function isJobOperation(operation: HistoryOperation): operation is OperationId {
+  return OPERATIONS.some((o) => o.id === operation)
 }
 
 /** True when the Legendas module — not the Convert wizard — is the one that runs this operation. */

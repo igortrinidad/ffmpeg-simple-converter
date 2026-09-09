@@ -1,19 +1,14 @@
-import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { createRunStamp, getFeatureOutputDir } from './outputPaths'
 
 export function getRecordingsDir(): string {
-  const dir = path.join(app.getPath('videos'), 'Mediacript Recordings')
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-  return dir
+  return getFeatureOutputDir('screencast')
 }
 
-/** Saves a raw recording buffer to a timestamped file in the recordings folder and returns its path. */
+/** Saves a raw recording buffer to a datetime-named file in the recordings folder and returns its path. */
 export function saveRawRecording(buffer: Buffer): string {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filePath = path.join(getRecordingsDir(), `screencast_${timestamp}.webm`)
+  const filePath = path.join(getRecordingsDir(), `${createRunStamp()}_screencast.webm`)
   fs.writeFileSync(filePath, buffer)
   return filePath
 }

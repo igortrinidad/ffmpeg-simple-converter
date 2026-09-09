@@ -15,7 +15,11 @@ export interface Config {
   anthropicApiKey?: string
   geminiApiKey?: string
   openrouterApiKey?: string
-  /** Optional default output directory for generated files, used by GUI consumers (e.g. the desktop app) */
+  /**
+   * Optional root directory for generated files, used by GUI consumers (e.g. the
+   * desktop app, which writes `<root>/<módulo>/<datetime>_<nome>.<ext>`). When
+   * empty the desktop app falls back to `<Documentos>/Mediacript`.
+   */
   defaultOutputDir?: string
   /** UI theme chosen by the user in GUI consumers (e.g. the desktop app); defaults to `system` */
   theme?: ThemePreference

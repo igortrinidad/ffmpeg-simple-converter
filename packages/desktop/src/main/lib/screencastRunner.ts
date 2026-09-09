@@ -1,6 +1,8 @@
 import fs from 'fs'
 import { compressVideoFile } from 'mediacript'
 import { captureConsole } from './consoleCapture'
+import { createRunStamp, getFeatureOutputDir, moveOutputInto } from './outputPaths'
+import { recordActivity } from './historyStore'
 import type { ScreencastLogLine, ScreencastProcessRequest, ScreencastProcessResult } from '../../shared/types'
 
 type ProgressFn = (step: string, status: 'running' | 'completed' | 'failed', detail?: string) => void
@@ -23,6 +25,15 @@ function formatMB(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
+/** `12:04` / `1:02:33` — how long the recording ran, for its History label. */
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds))
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const hours = Math.floor(seconds / 3600)
+  const rest = `${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`
+  return hours ? `${hours}:${rest}` : rest
+}
+
 /**
  * Turns the raw screen recording into the final optimized mp4, reporting one
  * progress event per step and mirroring mediacript's console/ffmpeg output so
@@ -34,6 +45,8 @@ export async function processRecording(
   onLog: LogFn
 ): Promise<ScreencastProcessResult> {
   const stopCapture = captureConsole((line) => onLog({ ...line, timestamp: new Date().toISOString() }))
+  const startedAt = new Date().toISOString()
+  const label = `Gravação de tela (${formatDuration(request.durationSeconds)})`
 
   try {
     emitProgress(ANALYZE_STEP, 'running')
@@ -58,11 +71,15 @@ export async function processRecording(
     emitProgress(OPTIMIZE_STEP, 'running')
     let outputPath: string
     try {
+      const screencastDir = getFeatureOutputDir('screencast')
       const result = await compressVideoFile(request.rawFilePath, targetSizeMB, {
         preset: 'slow',
-        maxHeight: MAX_HEIGHT
+        maxHeight: MAX_HEIGHT,
+        outputDir: screencastDir
       })
-      outputPath = result.outputPath
+      // The raw file is already datetime-named, so the optimized mp4 derived
+      // from it keeps that same stamp instead of getting a second one.
+      outputPath = moveOutputInto(result.outputPath, screencastDir, createRunStamp())
     } catch (error: any) {
       emitProgress(OPTIMIZE_STEP, 'failed', error?.message || String(error))
       throw error
@@ -80,7 +97,25 @@ export async function processRecording(
     }
     emitProgress(FINISH_STEP, 'completed', formatMB(sizeBytes))
 
+    recordActivity({
+      operation: 'screencast',
+      operationLabel: label,
+      inputFile: request.rawFilePath,
+      outputFiles: [outputPath],
+      startedAt
+    })
+
     return { outputPath, sizeBytes, rawFilePath: request.rawFilePath, rawSizeBytes }
+  } catch (error: any) {
+    recordActivity({
+      operation: 'screencast',
+      operationLabel: label,
+      inputFile: request.rawFilePath,
+      outputFiles: [],
+      startedAt,
+      error: error?.message || String(error)
+    })
+    throw error
   } finally {
     stopCapture()
   }

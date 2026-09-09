@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { MeetingCreateRequest, MeetingDetail } from '@shared/types'
 import { useMeetingRecorder } from './composables/useMeetingRecorder'
 import { useMeetings } from './composables/useMeetings'
+import { useNavigation } from '../../composables/useNavigation'
 import MeetingsListView from './MeetingsListView.vue'
 import MeetingSetupStep from './steps/MeetingSetupStep.vue'
 import MeetingProcessingStep from './steps/MeetingProcessingStep.vue'
@@ -12,6 +13,7 @@ type View = 'list' | 'setup' | 'recording' | 'processing' | 'detail'
 
 const recorder = useMeetingRecorder()
 const { state: meetingsState, load: loadMeetings, remove: removeMeeting } = useMeetings()
+const nav = useNavigation()
 
 const view = ref<View>('list')
 const startingRecording = ref(false)
@@ -26,7 +28,12 @@ const formattedElapsed = computed(() => {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
 })
 
-onMounted(loadMeetings)
+onMounted(async () => {
+  await loadMeetings()
+  // History's "Abrir reunião" navigates here with a meeting already chosen.
+  const pending = nav.consumeMeetingOpen()
+  if (pending) await openMeeting(pending)
+})
 
 // Stop can also come from the floating control window, which drives the
 // recorder directly and never passes through `stopRecording` below — so the

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   Config,
   AIProviderOption,
+  OutputRootInfo,
   JobRequest,
   JobEvent,
   JobLogLine,
@@ -57,6 +58,8 @@ const api = {
     get: (): Promise<Config> => ipcRenderer.invoke('config:get'),
     save: (values: Partial<Config>): Promise<Config> => ipcRenderer.invoke('config:save', values),
     getConfigDir: (): Promise<string> => ipcRenderer.invoke('config:getConfigDir'),
+    /** Where generated files are written today, plus the built-in default (Documentos/Mediacript) */
+    getOutputRoot: (): Promise<OutputRootInfo> => ipcRenderer.invoke('config:getOutputRoot'),
     listAIProviders: (): Promise<AIProviderOption[]> => ipcRenderer.invoke('config:listAIProviders')
   },
 

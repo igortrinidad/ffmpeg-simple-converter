@@ -3,16 +3,13 @@ import { randomUUID } from 'crypto'
 import {
   convertVideoFile,
   extractAudioFromVideo,
-  getExtractedAudioPath,
   convertAudioFile,
   transcribeAudioFile,
   saveTranscriptionToFile,
   saveSrtFile,
-  getSrtOutputPath,
   loadSrtFile,
   extractVideoHighlights,
   cutHighlightClipsWithAssets,
-  createOutputFolderForFile,
   exportClipToFormat,
   applySubtitlesToVideo,
   getStoredConfig
@@ -21,6 +18,15 @@ import type { TranscriptSegment, HighlightSegment } from 'mediacript'
 import { getOperation } from '../../shared/operations'
 import { addHistoryEntry } from './historyStore'
 import { saveSubtitleTextFile } from './subtitleText'
+import {
+  createRunOutputDir,
+  createRunStamp,
+  findPreviousOutput,
+  findPreviousRunDir,
+  getFeatureOutputDir,
+  moveOutputInto,
+  type OutputFeature
+} from './outputPaths'
 import { captureConsole } from './consoleCapture'
 import { resolveHighlightApiKey, buildHighlightFallbackOptions } from './aiOptions'
 import type { JobEvent, JobLogLine, JobRequest, JobStepState } from '../../shared/types'
@@ -111,10 +117,35 @@ async function runJobForFile(
   let highlights: HighlightSegment[] | undefined
   let srtFilePath: string | undefined
 
-  // Highlight runs generate many files (audio, subtitles, clips, thumbnails),
-  // so they get grouped into a folder named after the input file.
+  // Every output goes to the app's output root, inside the folder of the module
+  // that produced it (see outputPaths.ts) — never next to the source file.
+  // Highlight runs generate a whole set of files (audio, subtitles, clips,
+  // thumbnails), so they get one datetime-named folder per run instead of a
+  // datetime prefix on each file.
   const generatesHighlightClips = operation.steps.includes('Cortar clipes')
-  const outputDir = generatesHighlightClips ? createOutputFolderForFile(filePath) : undefined
+  const groupedRun = generatesHighlightClips || !!operation.startsHighlightChat
+  const feature: OutputFeature = groupedRun
+    ? 'highlights'
+    : operation.belongsToSubtitleModule
+      ? 'subtitle'
+      : 'convert'
+  const runStamp = createRunStamp()
+  const outputDir = groupedRun
+    ? createRunOutputDir(feature, filePath, runStamp)
+    : getFeatureOutputDir(feature)
+
+  /**
+   * Files a step produced land in `outputDir`, named after the run — grouped
+   * runs skip the datetime prefix since their folder already carries it.
+   */
+  const stamped = (producedPath: string): string =>
+    moveOutputInto(producedPath, outputDir, groupedRun ? undefined : runStamp)
+
+  // Where a previous run for this same source file left its reusable artifacts:
+  // the module's folder for flat runs, the previous run's folder for grouped ones.
+  const previousDirs = groupedRun
+    ? [outputDir, findPreviousRunDir(feature, filePath, outputDir)].filter((dir): dir is string => !!dir)
+    : [outputDir]
 
   // If a previous run already produced the .srt for this exact file, reuse it
   // instead of paying for transcription again — the timeline doesn't change
@@ -122,7 +153,7 @@ async function runJobForFile(
   const usesSubtitleTimeline =
     operation.steps.includes('Gerar legendas') || operation.steps.includes('Extrair texto')
   const existingSrtPath = usesSubtitleTimeline
-    ? getSrtOutputPath(filePath, outputDir)
+    ? findPreviousOutput(previousDirs, filePath, '.srt')
     : undefined
   const reuseExistingSrt = !!existingSrtPath && fs.existsSync(existingSrtPath)
 
@@ -131,7 +162,9 @@ async function runJobForFile(
   // still gets extracted (from a stable, reusable path) even when transcription
   // itself is skipped, and reused across runs the same way the .srt is.
   const needsPersistedAudio = !!operation.startsHighlightChat
-  const persistedAudioPath = needsPersistedAudio ? getExtractedAudioPath(filePath, outputDir) : undefined
+  const persistedAudioPath = needsPersistedAudio
+    ? findPreviousOutput(previousDirs, filePath, '_audio.mp3')
+    : undefined
   const persistedAudioExists = !!persistedAudioPath && fs.existsSync(persistedAudioPath)
   const canSkipAudioExtraction = needsPersistedAudio ? persistedAudioExists : reuseExistingSrt
 
@@ -150,17 +183,17 @@ async function runJobForFile(
           hwaccel: request.conversionOptions?.hwaccel ? 'auto' : 'none',
           outputDir
         })
-        currentFile = result.outputPath
-        outputFiles.push(result.outputPath)
-        videoOutputFiles.push(result.outputPath)
+        currentFile = stamped(result.outputPath)
+        outputFiles.push(currentFile)
+        videoOutputFiles.push(currentFile)
       })
     }
 
     if (ok && operation.steps.includes('Converter áudio')) {
       ok = await runStep('Converter áudio', async () => {
         const result = await convertAudioFile(currentFile, outputDir)
-        currentFile = result.outputPath
-        outputFiles.push(result.outputPath)
+        currentFile = stamped(result.outputPath)
+        outputFiles.push(currentFile)
       })
     }
 
@@ -178,9 +211,9 @@ async function runJobForFile(
       } else {
         ok = await runStep('Extrair áudio', async () => {
           const result = await extractAudioFromVideo(currentFile, outputDir)
-          audioFile = result.outputPath
-          currentFile = result.outputPath
-          outputFiles.push(result.outputPath)
+          audioFile = stamped(result.outputPath)
+          currentFile = audioFile
+          outputFiles.push(audioFile)
         })
       }
     }
@@ -193,7 +226,7 @@ async function runJobForFile(
           throw new Error('Falha ao transcrever com os provedores configurados (Groq/OpenAI)')
         }
         const textPath = await saveTranscriptionToFile(transcription.text, fileToTranscribe)
-        outputFiles.push(textPath)
+        outputFiles.push(stamped(textPath))
       })
     }
 
@@ -219,7 +252,7 @@ async function runJobForFile(
         }
         transcriptSegments = transcription.segments
         // Named after the original input file (nicer than the intermediate audio file)
-        const srtPath = saveSrtFile(transcription.segments, filePath, outputDir)
+        const srtPath = stamped(saveSrtFile(transcription.segments, filePath, outputDir))
         srtFilePath = srtPath
         outputFiles.push(srtPath)
         onTranscriptReady?.(jobId, filePath, transcription.segments, audioFile ?? fileToTranscribe)
@@ -248,7 +281,7 @@ async function runJobForFile(
         }
 
         transcriptSegments = segments
-        const textPath = saveSubtitleTextFile(segments, filePath, outputDir)
+        const textPath = stamped(saveSubtitleTextFile(segments, filePath, outputDir))
         outputFiles.push(textPath)
       })
     }
@@ -260,8 +293,9 @@ async function runJobForFile(
         }
         const mode = request.subtitleOptions?.mode ?? 'hardsub'
         const result = await applySubtitlesToVideo(filePath, srtFilePath, mode, outputDir)
-        outputFiles.push(result.outputPath)
-        videoOutputFiles.push(result.outputPath)
+        const subtitledPath = stamped(result.outputPath)
+        outputFiles.push(subtitledPath)
+        videoOutputFiles.push(subtitledPath)
       })
     }
 
@@ -293,7 +327,7 @@ async function runJobForFile(
 
     if (ok && operation.steps.includes('Cortar clipes')) {
       ok = await runStep('Cortar clipes', async () => {
-        const clips = await cutHighlightClipsWithAssets(filePath, highlights!, outputDir!, {
+        const clips = await cutHighlightClipsWithAssets(filePath, highlights!, outputDir, {
           marginSeconds: request.highlightOptions?.marginSeconds ?? 0
         })
         for (const clip of clips) {
@@ -310,7 +344,7 @@ async function runJobForFile(
         for (const videoFile of videoOutputFiles) {
           for (const formatId of formats) {
             const exported = await exportClipToFormat(videoFile, formatId, quality, framing, outputDir)
-            outputFiles.push(exported.outputPath)
+            outputFiles.push(stamped(exported.outputPath))
           }
         }
       })
